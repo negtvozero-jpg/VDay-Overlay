@@ -5,7 +5,7 @@
   const STORAGE_KEY_PRIDE = "vday_premium_pride_mask_v1";
   const STORAGE_KEY_TEX = "vday_premium_texture_mask_v1";
   const MAX_PRIDE = 25;
-  const MAX_TEX = 30;
+  const MAX_TEX = 32;
 
   function waitReady(cb) {
     if (window.__VDayRiveReady && window.__VDayRootVM) cb(window.__VDayRootVM);
