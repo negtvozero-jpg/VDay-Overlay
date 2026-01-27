@@ -44,7 +44,7 @@
   function getPrideImage(idx) {
     if (!prideCache[idx]) {
       const img = new Image();
-      img.src = `/assets-premium/P_${idx}.webp`;
+      img.src = `/assets-premium/p_${idx}.webp`;
       prideCache[idx] = img;
     }
     return prideCache[idx];
