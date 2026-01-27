@@ -44,7 +44,7 @@
   function getPrideImage(idx) {
     if (!prideCache[idx]) {
       const img = new Image();
-      img.src = `../assets-premium/P_${idx}.webp`;
+      img.src = `/assets-premium/P_${idx}.webp`;
       prideCache[idx] = img;
     }
     return prideCache[idx];
@@ -55,7 +55,7 @@
   function getTextureImage(idx) {
     if (!textureCache[idx]) {
       const img = new Image();
-      img.src = `../assets-premium/T_${idx}.webp`;
+      img.src = `/assets-premium/T_${idx}.webp`;
       textureCache[idx] = img;
     }
     return textureCache[idx];
