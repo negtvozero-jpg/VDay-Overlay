@@ -31,13 +31,11 @@
   let heartColorARGB = 0xffff4da6;
   let heartColorSecondaryARGB = 0xffffffff;
 
-  function pickFromMask(mask, maxBits = 32) {
+  function pickFromMask(mask, maxBits = 25) {
     mask = (mask >>> 0);
     if (!mask) return null;
     const pool = [];
-    for (let i = 0; i < maxBits; i++) {
-      if ((mask >>> i) & 1) pool.push(i);
-    }
+    for (let i = 0; i < maxBits; i++) if (mask & (1 << i)) pool.push(i);
     if (!pool.length) return null;
     return pool[(Math.random() * pool.length) | 0];
   }
@@ -189,7 +187,7 @@ const BASE_TOL = 28;
 
 
     if (cfg?.isTexture) {
-      const pick = pickFromMask(activeTextureMask, 32);
+      const pick = pickFromMask(activeTextureMask, 30);
       heart.textureIndex = (pick != null) ? pick : null;
       if (heart.textureIndex != null) heart.flipX = Math.random() < 0.5;
       return heart;
