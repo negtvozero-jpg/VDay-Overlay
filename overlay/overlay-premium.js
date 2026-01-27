@@ -31,7 +31,7 @@
   let heartColorARGB = 0xffff4da6;
   let heartColorSecondaryARGB = 0xffffffff;
 
-  function pickFromMask(mask, maxBits = 25) {
+  function pickFromMask(mask, maxBits = 32) {
     mask = (mask >>> 0);
     if (!mask) return null;
     const pool = [];
