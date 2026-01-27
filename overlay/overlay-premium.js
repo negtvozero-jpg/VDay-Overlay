@@ -187,7 +187,7 @@ const BASE_TOL = 28;
 
 
     if (cfg?.isTexture) {
-      const pick = pickFromMask(activeTextureMask, 30);
+      const pick = pickFromMask(activeTextureMask, 32);
       heart.textureIndex = (pick != null) ? pick : null;
       if (heart.textureIndex != null) heart.flipX = Math.random() < 0.5;
       return heart;
