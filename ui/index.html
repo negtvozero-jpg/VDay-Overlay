@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>VDay UI</title>
+  <style>
+      html, body { margin:0; height:100%; background:#ffffff00; }
+
+      #uiRoot {
+        position: relative;
+        width: 100%;
+        height: 100%;
+      }
+
+      /* canvas ocupa o container */
+      #rive-canvas {
+        width: 100%;
+        height: 100%;
+        display: block;
+      }
+  </style>
+</head>
+<body>
+  <div id="uiRoot">
+    <canvas id="rive-canvas"></canvas>
+    <input id="sysColor" type="color" style="position:fixed;left:-9999px;opacity:0;width:1px;height:1px;">
+  <script src="https://cdn.jsdelivr.net/npm/@rive-app/webgl2@2.34.1/rive.js"></script>
+  <script src="./ui.js"></script>
+  <script src="./ui-premium.js"></script>
+</div>
+
+</body>
+</html>
