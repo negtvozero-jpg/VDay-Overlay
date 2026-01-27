@@ -53,8 +53,6 @@ function getAlertMultipliers(nowMs) {
     return {
       densityMul: isNum(m.densityMul) ? m.densityMul : 1,
       speedMul: isNum(m.speedMul) ? m.speedMul : 1,
-      // overlay-alerts.ui.js exposes `scaleMul` (not `sizeMul`).
-      // Keep backward compatibility: prefer sizeMul if it exists, otherwise read scaleMul.
       sizeMul: isNum(m.sizeMul) ? m.sizeMul : (isNum(m.scaleMul) ? m.scaleMul : 1),
     };
   }
@@ -134,7 +132,7 @@ window.drawHeart = function (ctx, p, render) {
 };
 
 const heartImg = new Image();
-heartImg.src = "../assets/default.webp";
+heartImg.src = "/assets/default.webp";
 
 heartImg.onload = () => {
   requestAnimationFrame(loop);
