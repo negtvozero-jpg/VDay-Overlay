@@ -35,7 +35,9 @@
     mask = (mask >>> 0);
     if (!mask) return null;
     const pool = [];
-    for (let i = 0; i < maxBits; i++) if (mask & (1 << i)) pool.push(i);
+    for (let i = 0; i < maxBits; i++) {
+      if ((mask >>> i) & 1) pool.push(i);
+    }
     if (!pool.length) return null;
     return pool[(Math.random() * pool.length) | 0];
   }
