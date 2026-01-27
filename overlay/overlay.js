@@ -132,7 +132,7 @@ window.drawHeart = function (ctx, p, render) {
 };
 
 const heartImg = new Image();
-heartImg.src = "/assets/default.webp";
+heartImg.src = "/assets/Default.webp";
 
 heartImg.onload = () => {
   requestAnimationFrame(loop);
