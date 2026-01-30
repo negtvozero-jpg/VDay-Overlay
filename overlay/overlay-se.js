@@ -7,6 +7,9 @@
     if (h.length !== 8) return null;
     return parseInt(h, 16) >>> 0;
   }
+  
+ console.log("[SE] fieldData", f);
+  console.log("[SE] config before", JSON.parse(JSON.stringify(C)));
 
   function applyFieldData(f) {
     const C = window.VDAY?.config;
@@ -35,8 +38,14 @@
   }
 
   window.addEventListener("onWidgetLoad", (e) => {
+  const f = e?.detail?.fieldData || {};
+  requestAnimationFrame(() => applyFieldData(f));
+});
+
+  window.addEventListener("onWidgetLoad", (e) => {
     const f = e?.detail?.fieldData || {};
     applyFieldData(f);
   });
 })();
+
 
