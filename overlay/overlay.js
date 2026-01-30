@@ -54,8 +54,9 @@ const CONFIG = {
   poolSize: 200
 };
 
+window.CONFIG = CONFIG;           
 window.VDAY = window.VDAY || {};
-window.VDAY.config = CONFIG;
+window.VDAY.config = CONFIG;      
 
 function argbToHex(argb) {
   const rgb = (argb >>> 0) & 0x00ffffff;
