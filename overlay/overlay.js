@@ -53,8 +53,7 @@ const CONFIG = {
   spawnSpread: 1,
   poolSize: 200
 };
-
-window.CONFIG = CONFIG;           
+  
 window.VDAY = window.VDAY || {};
 window.VDAY.config = CONFIG;      
 
