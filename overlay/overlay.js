@@ -131,8 +131,11 @@ window.drawHeart = function (ctx, p, render) {
   );
 };
 
+const VDAY_ASSET_BASE = (window.VDAY_ASSET_BASE || "").replace(/\/$/, "");
+const vdayAssetUrl = (p) => (VDAY_ASSET_BASE ? `${VDAY_ASSET_BASE}${p}` : p);
+
 const heartImg = new Image();
-heartImg.src = "/assets/Default.webp";
+heartImg.src = vdayAssetUrl("/assets/Default.webp");
 
 heartImg.onload = () => {
   requestAnimationFrame(loop);
