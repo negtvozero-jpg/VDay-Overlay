@@ -1,5 +1,7 @@
 
 (() => {
+  const VDAY_ASSET_BASE = (window.VDAY_ASSET_BASE || "").replace(/\/$/, "");
+  const vdayAssetUrl = (p) => (VDAY_ASSET_BASE ? `${VDAY_ASSET_BASE}${p}` : p);
   const _spawnHeart = window.spawnHeart;
   const _drawHeart = window.drawHeart;
 
@@ -44,7 +46,7 @@
   function getPrideImage(idx) {
     if (!prideCache[idx]) {
       const img = new Image();
-      img.src = `/assets-premium/p_${idx}.webp`;
+      img.src = vdayAssetUrl(`/assets-premium/p_${idx}.webp`);
       prideCache[idx] = img;
     }
     return prideCache[idx];
@@ -55,7 +57,7 @@
   function getTextureImage(idx) {
     if (!textureCache[idx]) {
       const img = new Image();
-      img.src = `/assets-premium/T_${idx}.webp`;
+      img.src = vdayAssetUrl(`/assets-premium/T_${idx}.webp`);
       textureCache[idx] = img;
     }
     return textureCache[idx];
