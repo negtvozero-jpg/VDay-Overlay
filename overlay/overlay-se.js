@@ -3,17 +3,14 @@
     if (!hex) return null;
     let h = String(hex).trim();
     if (h.startsWith("#")) h = h.slice(1);
-    if (h.length === 6) h = "ff" + h;    
+    if (h.length === 6) h = "ff" + h;
     if (h.length !== 8) return null;
     return parseInt(h, 16) >>> 0;
   }
-  
- console.log("[SE] fieldData", f);
-  console.log("[SE] config before", JSON.parse(JSON.stringify(C)));
 
   function applyFieldData(f) {
-    const C = window.VDAY?.config;
-    if (!C) return;
+    const C = window.VDAY?.config || window.CONFIG;
+    if (!C || !f) return;
 
     if (f.density != null) C.density = Number(f.density);
     if (f.speed != null) C.speed = Number(f.speed);
@@ -37,15 +34,11 @@
     window.vdayRebuildTextures?.();
   }
 
-  window.addEventListener("onWidgetLoad", (e) => {
-  const f = e?.detail?.fieldData || {};
-  requestAnimationFrame(() => applyFieldData(f));
-});
-
-  window.addEventListener("onWidgetLoad", (e) => {
+  function onFields(e) {
     const f = e?.detail?.fieldData || {};
-    applyFieldData(f);
-  });
+    requestAnimationFrame(() => applyFieldData(f));
+  }
+
+  window.addEventListener("onWidgetLoad", onFields);
+  window.addEventListener("onWidgetUpdate", onFields);
 })();
-
-
