@@ -9,7 +9,7 @@
   }
 
   function applyFieldData(f) {
-    const C = window.VDAY.config 
+    const C = window.VDAY?.config;
     if (!C || !f) return;
 
     if (f.density != null) C.density = Number(f.density);
@@ -21,6 +21,9 @@
     if (f.sizeMin != null) C.sizeMin = Number(f.sizeMin);
     if (f.sizeMax != null) C.sizeMax = Number(f.sizeMax);
     if (C.sizeMax < C.sizeMin) C.sizeMax = C.sizeMin;
+
+    // IMPORTANT: render usa colorHex
+    if (f.primaryColor != null) C.colorHex = String(f.primaryColor).trim();
 
     const p = hexToARGBInt(f.primaryColor);
     const s = hexToARGBInt(f.secondaryColor);
@@ -42,4 +45,3 @@
   window.addEventListener("onWidgetLoad", onFields);
   window.addEventListener("onWidgetUpdate", onFields);
 })();
-
