@@ -9,7 +9,7 @@
   }
 
   function applyFieldData(f) {
-    const C = window.CONFIG;
+    const C = window.VDAY?.config;
     if (!C) return;
 
     if (f.density != null) C.density = Number(f.density);
@@ -39,3 +39,4 @@
     applyFieldData(f);
   });
 })();
+
