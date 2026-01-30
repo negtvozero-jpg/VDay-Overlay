@@ -1,6 +1,12 @@
 const canvas = document.getElementById("canvas");
 const ctx = canvas.getContext("2d");
 
+canvas.style.position = "fixed";
+canvas.style.inset = "0";
+canvas.style.width = "100vw";
+canvas.style.height = "100vh";
+canvas.style.display = "block";
+
 let width, height;
 const TARGET_W = 1920;
 const TARGET_H = 1080;
