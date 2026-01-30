@@ -1,4 +1,12 @@
-const canvas = document.getElementById("canvas");
+const canvas =
+  document.getElementById("canvas") ||
+  (() => {
+    const c = document.createElement("canvas");
+    c.id = "canvas";
+    document.body.appendChild(c);
+    return c;
+  })();
+
 const ctx = canvas.getContext("2d");
 
 canvas.style.position = "fixed";
