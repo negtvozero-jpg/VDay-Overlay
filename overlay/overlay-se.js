@@ -61,6 +61,18 @@
     }
 
     window.vdayRebuildTextures?.();
+    console.log("[SE fieldData]", f);
+    console.log("[VDAY config]", {
+      density: C.density,
+      speed: C.speed,
+      sizeMin: C.sizeMin,
+      sizeMax: C.sizeMax,
+      maxParticles: C.maxParticles,
+      direction: C.direction,
+      styleMode: f.styleMode,
+      colorHex: C.colorHex
+    });
+
   }
 
   function onFields(e) {
@@ -71,3 +83,4 @@
   window.addEventListener("onWidgetLoad", onFields);
   window.addEventListener("onWidgetUpdate", onFields);
 })();
+
