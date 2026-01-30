@@ -77,14 +77,22 @@ function getAlertMultipliers(nowMs) {
 
 window.__vdayGetAlertMultipliers = getAlertMultipliers;
 
-const bc = new BroadcastChannel("vday-config");
-bc.onmessage = (ev) => {
-
-  const msg = ev.data;
-  if (!msg || msg.type !== "config") return;
-
-  const c = msg.payload || {};
-
+  let bc = null;
+  
+  try {
+    bc = new BroadcastChannel("vday-config");
+  } catch (err) {
+    console.warn(
+      "[VDAY] BroadcastChannel unavailable (opaque origin). UI bridge disabled.",
+      err
+    );
+  }
+  
+  if (bc) {
+    bc.onmessage = (ev) => {
+      const msg = ev.data;
+      if (!msg || msg.type !== "config") return;
+      const c = msg.payload || {};
   if (typeof c.density === "number") CONFIG.density = c.density;
   if (typeof c.speed === "number") CONFIG.speed = c.speed;
   if (typeof c.direction === "number") CONFIG.direction = c.direction;
@@ -105,9 +113,9 @@ bc.onmessage = (ev) => {
   if (typeof c.isTexture === "boolean") CONFIG.isTexture = c.isTexture;
   if (typeof c.textureValue === "number") CONFIG.textureValue = c.textureValue >>> 0;
   if (CONFIG.sizeMax < CONFIG.sizeMin) CONFIG.sizeMax = CONFIG.sizeMin; 
-
-
-};
+  
+  };
+}
 
 const particles = [];
 const pool = [];
