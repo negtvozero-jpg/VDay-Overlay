@@ -53,9 +53,7 @@ const CONFIG = {
   spawnSpread: 1,
   poolSize: 200
 };
-  
-window.VDAY = window.VDAY || {};
-window.VDAY.config = CONFIG;      
+
 
 function argbToHex(argb) {
   const rgb = (argb >>> 0) & 0x00ffffff;
