@@ -188,17 +188,44 @@ const BASE_TOL = 28;
     heart.textureIndex = null;
 
 
-    if (cfg?.isTexture) {
-      const pick = pickFromMask(activeTextureMask, 32);
-      heart.textureIndex = (pick != null) ? pick : null;
-      if (heart.textureIndex != null) heart.flipX = Math.random() < 0.5;
-      return heart;
-    }
+      const texOn = (activeTextureMask >>> 0) !== 0;
+      const prideOn = (activePrideMask >>> 0) !== 0;
 
-    if (cfg?.isPride) {
-      const pick = pickFromMask(activePrideMask, 25);
-      heart.prideIndex = (pick != null) ? pick : null;
-      if (heart.prideIndex != null) heart.flipX = Math.random() < 0.5;
+      if (texOn && prideOn) {
+        const texPick = pickFromMask(activeTextureMask, 32);
+        const pridePick = pickFromMask(activePrideMask, 25);
+
+        if (texPick == null && pridePick != null) {
+          heart.prideIndex = pridePick;
+          heart.flipX = Math.random() < 0.5;
+          return heart;
+        }
+        if (pridePick == null && texPick != null) {
+          heart.textureIndex = texPick;
+          heart.flipX = Math.random() < 0.5;
+          return heart;
+        }
+
+        if (Math.random() < 0.5) {
+          heart.textureIndex = texPick;
+        } else {
+          heart.prideIndex = pridePick;
+        }
+        if (heart.textureIndex != null || heart.prideIndex != null) heart.flipX = Math.random() < 0.5;
+        return heart;
+      }
+
+      if (texOn) {
+        const pick = pickFromMask(activeTextureMask, 32);
+        heart.textureIndex = (pick != null) ? pick : null;
+        if (heart.textureIndex != null) heart.flipX = Math.random() < 0.5;
+        return heart;
+      }
+
+      if (prideOn) {
+        const pick = pickFromMask(activePrideMask, 25);
+        heart.prideIndex = (pick != null) ? pick : null;
+        if (heart.prideIndex != null) heart.flipX = Math.random() < 0.5;
       return heart;
     }
 
