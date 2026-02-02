@@ -471,7 +471,7 @@ function resetRenderMods() {
         const prevFilterA = ctx.filter;
 
         ctx.globalCompositeOperation = "lighter";
-        ctx.globalAlpha = prevAlphaA * m.additiveAlphaMul;
+        ctx.globalAlpha = prevAlphaA * clamp01(m.additiveAlphaMul - 1);
 
         if (Math.abs(m.hueRotateDeg) > 0.5) {
           try { ctx.filter = `hue-rotate(${m.hueRotateDeg}deg)`; } catch (_) {}
@@ -500,7 +500,7 @@ function resetRenderMods() {
           const prevShadowColor = ctx.shadowColor;
 
           ctx.globalCompositeOperation = "lighter";
-
+          ctx.globalAlpha = prevAlpha2 * clamp01(alpha);
 
           let usedFilter = false;
           try {
