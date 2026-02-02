@@ -132,13 +132,15 @@ const BASE_TOL = 28;
     return c;
   }
 
-  const bc = new BroadcastChannel("vday-config");
+  let bc = null;
+  try { bc = new BroadcastChannel("vday-config"); } catch {}
+
 
   let lastPrideClearSeq = null;
   let lastTextureClearSeq = null;
   let didSyncClear = false;
 
-  bc.onmessage = (ev) => {
+  if (bc) bc.onmessage = (ev) => {
     const payload = ev?.data?.payload;
     if (!payload) return;
     if (typeof payload.heartColorARGB === "number") heartColorARGB = (payload.heartColorARGB >>> 0);
@@ -183,6 +185,10 @@ const BASE_TOL = 28;
 
   window.spawnHeart = function (cfg, init) {
     const heart = _spawnHeart(cfg, init);
+    if (window.__VDAY_SE_FIELDS === true) {
+      if (typeof cfg?.prideValue === "number") activePrideMask = (cfg.prideValue >>> 0);
+      if (typeof cfg?.textureValue === "number") activeTextureMask = (cfg.textureValue >>> 0);
+    }
 
     heart.prideIndex = null;
     heart.textureIndex = null;
