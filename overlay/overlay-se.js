@@ -27,10 +27,14 @@
   const PRIDE_KEYS = Array.from({ length: 32 }, (_, i) => `pride_${i}`);
   const TEX_KEYS = Array.from({ length: 32 }, (_, i) => `tex_${i}`);
 
+  function isChecked(v) {
+    return v === true || v === 1 || v === "1" || v === "true" || v === "on" || v === "yes";
+  }
+
   function buildMask(keys, f) {
     let m = 0;
     for (let i = 0; i < 32; i++) {
-      if (f[keys[i]] === true) m |= (1 << i);
+      if (isChecked(f[keys[i]])) m |= (1 << i);
     }
     return m >>> 0;
   }
