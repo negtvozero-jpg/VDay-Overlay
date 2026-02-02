@@ -194,6 +194,8 @@ const BASE_TOL = 28;
     if (window.__VDAY_SE_FIELDS === true) {
       if (typeof cfg?.prideValue === "number") activePrideMask = (cfg.prideValue >>> 0);
       if (typeof cfg?.textureValue === "number") activeTextureMask = (cfg.textureValue >>> 0);
+      if (typeof cfg?.heartColorARGB === "number") heartColorARGB = (cfg.heartColorARGB >>> 0);
+      if (typeof cfg?.heartColorSecondaryARGB === "number") heartColorSecondaryARGB = (cfg.heartColorSecondaryARGB >>> 0);
     }
 
     heart.prideIndex = null;
