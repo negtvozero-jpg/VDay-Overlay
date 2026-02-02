@@ -54,7 +54,7 @@
   };
 
   const layers = {};
-  for (const k in PRESETS) layers[k] = { queue: [], active: null };
+  for (const k in PRESETS) layers[k] = { key: k, queue: [], active: null };
 
   const clamp01 = v => Math.max(0, Math.min(1, v));
 
