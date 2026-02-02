@@ -1,6 +1,8 @@
 (() => {
   "use strict";
 
+  const updatePanelSafe = () => (typeof updatePanel === "function") && updatePanel();
+
   const EFFECT = Object.freeze({
     OFF: 0,
     HEARTBEAT: 1,
