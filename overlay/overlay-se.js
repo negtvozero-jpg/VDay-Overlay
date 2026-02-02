@@ -1,5 +1,6 @@
 
 (function () {
+  window.__VDAY_SE_FIELDS = true;
   function hexToARGBInt(hex) {
     if (!hex) return null;
     let h = String(hex).trim();
@@ -23,6 +24,18 @@
     if (typeof v === "string") C[key] = v;
   }
 
+  const PRIDE_KEYS = Array.from({ length: 32 }, (_, i) => `pride_${i}`);
+  const TEX_KEYS = Array.from({ length: 32 }, (_, i) => `tex_${i}`);
+
+  function buildMask(keys, f) {
+    let m = 0;
+    for (let i = 0; i < 32; i++) {
+      if (f[keys[i]] === true) m |= (1 << i);
+    }
+    return m >>> 0;
+  }
+
+
   function applyFieldData(f) {
     const C = window.VDAY?.config;
     if (!C || !f) return;
@@ -43,12 +56,6 @@
       C.sizeMax = C.sizeMin;
     }
 
-    if (typeof f.styleMode === "string") {
-      if (f.styleMode === "texture") { C.isTexture = true; C.isPride = false; }
-      else if (f.styleMode === "pride") { C.isPride = true; C.isTexture = false; }
-      else { C.isPride = false; C.isTexture = false; }
-    }
-
     if (typeof f.primaryColor === "string" && f.primaryColor.trim()) {
       setStr(C, "colorHex", f.primaryColor.trim());
       const p = hexToARGBInt(f.primaryColor);
@@ -60,19 +67,13 @@
       if (s != null) C.heartColorSecondaryARGB = s;
     }
 
-    window.vdayRebuildTextures?.();
-    console.log("[SE fieldData]", f);
-    console.log("[VDAY config]", {
-      density: C.density,
-      speed: C.speed,
-      sizeMin: C.sizeMin,
-      sizeMax: C.sizeMax,
-      maxParticles: C.maxParticles,
-      direction: C.direction,
-      styleMode: f.styleMode,
-      colorHex: C.colorHex
-    });
+    C.prideValue = buildMask(PRIDE_KEYS, f);
+    C.textureValue = buildMask(TEX_KEYS, f);
 
+    C.isPride = (C.prideValue >>> 0) !== 0;
+    C.isTexture = (C.textureValue >>> 0) !== 0;
+
+    window.vdayRebuildTextures?.();
   }
 
   function onFields(e) {
@@ -83,4 +84,3 @@
   window.addEventListener("onWidgetLoad", onFields);
   window.addEventListener("onWidgetUpdate", onFields);
 })();
-
