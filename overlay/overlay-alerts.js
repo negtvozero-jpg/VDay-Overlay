@@ -1,7 +1,10 @@
 (() => {
   "use strict";
 
-  const updatePanelSafe = () => (typeof updatePanel === "function") && updatePanel();
+  const debug = (window.debug && typeof window.debug.log === "function")
+    ? window.debug
+    : { log: function () {} };
+
 
   const EFFECT = Object.freeze({
     OFF: 0,
@@ -87,31 +90,19 @@
     },
   };
 
-  const MAX_QUEUE = {
-    heartbeat: 12,
-    glow: 10,
-    additive: 14,
-    wobble: 14,
-    colorShift: 10,
-    scaleWave: 12,
-    burst: 8,
-  };
+  const clamp01 = (x) => Math.max(0, Math.min(1, x));
 
-  const OVERFLOW_POLICY = "drop_oldest";
-
-  // ==========================================
-  // STATE (merged from both)
-  // ==========================================
+  let DEBUG = false;
+  function log(...a) { if (DEBUG) debug.log(...a); }
+  function warn(...a) { if (DEBUG) debug.log(...a); }
   
-  let DEBUG = true;
-  let __loggedNoRootVM = false;
-  let __wsMsgLogCount_SB = 0;
-  let __wsMsgLogCount_FB = 0;
-  const __wsMsgLogLimit = 5;
-
   const state = {
-    // From .patched
     alertsEnabled: false,
+
+    spawnMode: "continuous",
+    triggerUntilMs: 0,
+    triggerWindowMs: 6000,
+
     alertHub: HUB.OFF,
     effectsByAlert: {
       follow: EFFECT.OFF,
@@ -123,7 +114,6 @@
       raid: EFFECT.OFF,
     },
     
-    // WS
     ws: null,
     wsHub: HUB.OFF,
     wsStatus: "idle",
@@ -131,12 +121,6 @@
     lastEvent: "",
     lastEventAt: 0,
 
-    // Spawn gate
-    spawnMode: "continuous",
-    triggerUntilMs: 0,
-    triggerWindowMs: 6000,
-
-    // Rive
     riveStatus: "waiting",
     riveDetails: "",
   };
@@ -147,150 +131,90 @@
 
   // From .updated
   let lastFrameMs = 0;
-  let lastRenderMods = {
-    additiveAlphaMul: 1,
-    wobbleRad: 0,
-    hueRotateDeg: 0,
-    densityMul: 1,
-    speedMul: 1,
-    sizeMul: 1,
-    scaleMul: 1,
-    glowActive: false,
+  const lastRenderMods = {
     glowAlpha: 0,
-    glowBlurPx: 0,
+    glowBlur: 0,
+    additiveAlpha: 0,
+    wobbleAngle: 0,
+    hueShift: 0,
+    scaleWave: 0,
+    burstBoost: 0,
   };
 
-  // ==========================================
-  // UTILS
-  // ==========================================
-  
-  function log(...a) { if (DEBUG) console.log("[ALERTS]", ...a); }
-  function warn(...a) { console.warn("[ALERTS]", ...a); }
-  
-  function clamp01(x) { return x < 0 ? 0 : x > 1 ? 1 : x; }
-  
-  function easeOutCubic(t) {
-    const u = 1 - t;
-    return 1 - u * u * u;
+  function resetRenderMods() {
+    lastRenderMods.glowAlpha = 0;
+    lastRenderMods.glowBlur = 0;
+    lastRenderMods.additiveAlpha = 0;
+    lastRenderMods.wobbleAngle = 0;
+    lastRenderMods.hueShift = 0;
+    lastRenderMods.scaleWave = 0;
+    lastRenderMods.burstBoost = 0;
   }
 
-  function pulseAD(t, attack, decay) {
-    if (t < 0) return 0;
-    const a = 1 - Math.exp(-t / Math.max(attack, 1e-6));
-    const d = Math.exp(-t / Math.max(decay, 1e-6));
-    return a * d;
-  }
-
-  function hubLabel(h) {
-    if (h === HUB.STREAMERBOT) return "streamerbot";
-    if (h === HUB.FIREBOT) return "firebot";
-    return "off";
-  }
-
-  function pickRandomEffect() {
-    const pool = ["heartbeat", "glow", "burst", "additive", "wobble", "colorShift", "scaleWave"];
-    return pool[(Math.random() * pool.length) | 0] || "heartbeat";
-  }
-
-  // ==========================================
-  // LAYER MANAGEMENT (from .updated)
-  // ==========================================
-  
-  function makeLayer(key) {
+  function makeLayer(preset) {
     return {
-      key,
-      preset: PRESETS[key],
       queue: [],
       active: null,
+      preset,
     };
   }
 
   const layers = {
-    heartbeat: makeLayer("heartbeat"),
-    glow: makeLayer("glow"),
-    additive: makeLayer("additive"),
-    wobble: makeLayer("wobble"),
-    colorShift: makeLayer("colorShift"),
-    scaleWave: makeLayer("scaleWave"),
-    burst: makeLayer("burst"),
+    heartbeat: makeLayer(PRESETS.heartbeat),
+    glow: makeLayer(PRESETS.glow),
+    additive: makeLayer(PRESETS.additive),
+    wobble: makeLayer(PRESETS.wobble),
+    colorShift: makeLayer(PRESETS.colorShift),
+    scaleWave: makeLayer(PRESETS.scaleWave),
+    burst: makeLayer(PRESETS.burst),
   };
 
-  function layerCap(key) { return MAX_QUEUE[key] ?? 10; }
-
-  function applyOverflow(queue, cap) {
-    while (queue.length > cap) {
-      if (OVERFLOW_POLICY === "drop_new") queue.pop();
-      else queue.shift();
-    }
-  }
-
-  function enqueueEffect(effectKey, nowMs) {
-    if (!state.alertsEnabled) return;
-    if (!state.effectsByAlert || Object.values(state.effectsByAlert).every(v => v === EFFECT.OFF)) {
-      // Se todos estão OFF, ignorar (compatibilidade com UI)
-      return;
-    }
-    
-    const layer = layers[effectKey];
+  function enqueueEffect(key, nowMs) {
+    const layer = layers[key];
     if (!layer) return;
-
-    layer.queue.push({ createdAt: nowMs });
-    applyOverflow(layer.queue, layerCap(effectKey));
-    log("[EFFECT] enqueued:", effectKey);
+    layer.queue.push({ at: nowMs });
   }
 
-  function startNextIfIdle(layer, nowMs) {
-    if (layer.active) return;
-    if (layer.queue.length === 0) return;
-
-    layer.queue.shift();
-
-    let durationMs = 1000;
-    if (layer.key === "heartbeat") {
-      durationMs = PRESETS.heartbeat.durationMs;
-    } else {
-      durationMs = Math.max(1, layer.preset?.durationMs || 1000);
-    }
-
-    let tailFactor = 0;
-    if (layer.key !== "heartbeat") {
-      const d = layer.preset?.decay || 0;
-      tailFactor = Math.min(1.6, d * 3);
-    }
-
-    layer.active = {
-      startMs: nowMs,
-      endMs: nowMs + durationMs * (1 + tailFactor),
-      durationMs,
-    };
+  function pickRandomEffect() {
+    const keys = Object.keys(PRESETS);
+    return keys[(Math.random() * keys.length) | 0];
   }
 
   function tickLayer(layer, nowMs) {
-    if (layer.active && nowMs >= layer.active.endMs) layer.active = null;
-    startNextIfIdle(layer, nowMs);
+    const p = layer.preset;
+
+    if (!layer.active && layer.queue.length) {
+      const item = layer.queue.shift();
+      layer.active = {
+        startMs: nowMs,
+        durationMs: p.durationMs,
+        preset: p,
+      };
+      return;
+    }
+
+    const a = layer.active;
+    if (!a) return;
+
+    if (nowMs - a.startMs >= a.durationMs) {
+      layer.active = null;
+    }
+  }
+
+  function envAD(tt, attack, decay) {
+    if (tt <= 0) return 0;
+    if (tt >= 1) return 0;
+    const a = clamp01(tt / Math.max(1e-6, attack));
+    const d = clamp01((1 - tt) / Math.max(1e-6, decay));
+    return Math.min(a, d);
   }
 
   function computeHeartbeatSizeMul(tt, durationMs) {
-    const preset = PRESETS.heartbeat;
-    const ramp = easeOutCubic(Math.min(1, tt / 0.15));
-    const decay = 1 - tt;
-    const env = ramp * decay;
-    const phase = 2 * Math.PI * preset.beatsPerSecond * (tt * (durationMs / 1000));
+    const p = PRESETS.heartbeat;
+    const tSec = (tt * durationMs) / 1000;
+    const phase = tSec * p.beatsPerSecond * Math.PI * 2;
     const pulse = Math.max(0, Math.sin(phase));
-    return 1 + (preset.pulseStrength * env * pulse);
-  }
-
-  // ==========================================
-  // EFFECT MATH (getMultipliers - compatible API)
-  // ==========================================
-  
-  function resetRenderMods() {
-    lastRenderMods.additiveAlphaMul = 1;
-    lastRenderMods.wobbleRad = 0;
-    lastRenderMods.hueRotateDeg = 0;
-    lastRenderMods.glowActive = false;
-    lastRenderMods.glowAlpha = 0;
-    lastRenderMods.glowBlurPx = 0;
+    return 1 + pulse * p.pulseStrength;
   }
 
   function activateTriggerWindow(nowMs, extraMs) {
@@ -299,14 +223,11 @@
     const until = nowMs + Math.max(0, dur);
     if (until > state.triggerUntilMs) state.triggerUntilMs = until;
   }
-
-
+  
   function getMultipliers(nowMs) {
-    // Called by overlay core each frame
     if (!lastFrameMs) lastFrameMs = nowMs;
     lastFrameMs = nowMs;
 
-    // Advance layer queues
     for (const k of Object.keys(layers)) tickLayer(layers[k], nowMs);
 
     const out = {
@@ -339,636 +260,202 @@
       out.scaleMul *= size;
       out.densityMul *= PRESETS.heartbeat.densityMul;
       out.speedMul *= PRESETS.heartbeat.speedMul;
-      out.glow = (size - 1) * 2; // derivado do pulse
-    }
-
-    // BURST
-    const b = layers.burst.active;
-    if (b) {
-      const tSec = (nowMs - b.startMs) / 1000;
-      const env = pulseAD(tSec, PRESETS.burst.attack, PRESETS.burst.decay);
-      out.densityMul *= (1 + (PRESETS.burst.densityMul - 1) * env);
-      out.speedMul *= (1 + (PRESETS.burst.speedMul - 1) * env);
-      out.burst = env;
-    }
-
-    // SCALE WAVE
-    const sw = layers.scaleWave.active;
-    if (sw) {
-      const tSec = (nowMs - sw.startMs) / 1000;
-      const env = pulseAD(tSec, PRESETS.scaleWave.attack, PRESETS.scaleWave.decay);
-      const wave = Math.sin(2 * Math.PI * PRESETS.scaleWave.freqHz * tSec);
-      const size = 1 + (PRESETS.scaleWave.amp * env * wave);
-      out.sizeMul *= size;
-      out.scaleMul *= size;
-    }
-
-    // ADDITIVE
-    const ad = layers.additive.active;
-    if (ad) {
-      const tSec = (nowMs - ad.startMs) / 1000;
-      const env = pulseAD(tSec, PRESETS.additive.attack, PRESETS.additive.decay);
-      lastRenderMods.additiveAlphaMul = 1 + (PRESETS.additive.alphaAmp * env);
-      out.additive = env;
-    }
-
-    // WOBBLE
-    const wb = layers.wobble.active;
-    if (wb) {
-      const tSec = (nowMs - wb.startMs) / 1000;
-      const env = pulseAD(tSec, PRESETS.wobble.attack, PRESETS.wobble.decay);
-      const phase = 2 * Math.PI * PRESETS.wobble.freqHz * tSec;
-      lastRenderMods.wobbleRad = PRESETS.wobble.angleRad * env * Math.sin(phase);
-      out.wobble = lastRenderMods.wobbleRad;
-    }
-
-    // COLOR SHIFT
-    const cs = layers.colorShift.active;
-    if (cs) {
-      const tSec = (nowMs - cs.startMs) / 1000;
-      const env = pulseAD(tSec, PRESETS.colorShift.attack, PRESETS.colorShift.decay);
-      const durSec = Math.max(0.001, cs.durationMs / 1000);
-      const prog = clamp01(tSec / durSec);
-      lastRenderMods.hueRotateDeg = 360 * PRESETS.colorShift.cycles * prog * env;
-      out.hueShift = lastRenderMods.hueRotateDeg;
     }
 
     // GLOW
     const gl = layers.glow.active;
     if (gl) {
-      const tSec = (nowMs - gl.startMs) / 1000;
-      const env = pulseAD(tSec, PRESETS.glow.attack, PRESETS.glow.decay);
-      lastRenderMods.glowActive = env > 0.001;
-      lastRenderMods.glowAlpha = Math.min(1.75, 0.15 + 1.35 * env);
-      lastRenderMods.glowBlurPx = Math.min(18, 2 + (PRESETS.glow.blurMaxPx * 1.6) * env);
-      out.glow = env;
-      out.alphaMul = 1 + 0.2 * env;
+      const tt = clamp01((nowMs - gl.startMs) / gl.durationMs);
+      const e = envAD(tt, gl.preset.attack, gl.preset.decay);
+      lastRenderMods.glowAlpha = e * gl.preset.alphaMax;
+      lastRenderMods.glowBlur = e * gl.preset.blurMaxPx;
+      out.glow = e * gl.preset.strength;
+    }
+
+    // ADDITIVE
+    const ad = layers.additive.active;
+    if (ad) {
+      const tt = clamp01((nowMs - ad.startMs) / ad.durationMs);
+      const e = envAD(tt, ad.preset.attack, ad.preset.decay);
+      lastRenderMods.additiveAlpha = e * ad.preset.alphaAmp;
+      out.additive = lastRenderMods.additiveAlpha;
+    }
+
+    // WOBBLE
+    const wo = layers.wobble.active;
+    if (wo) {
+      const tt = clamp01((nowMs - wo.startMs) / wo.durationMs);
+      const e = envAD(tt, wo.preset.attack, wo.preset.decay);
+      const tSec = (tt * wo.durationMs) / 1000;
+      lastRenderMods.wobbleAngle = Math.sin(tSec * wo.preset.freqHz * Math.PI * 2) * wo.preset.angleRad * e;
+      out.wobble = lastRenderMods.wobbleAngle;
+    }
+
+    // COLORSHIFT
+    const cs = layers.colorShift.active;
+    if (cs) {
+      const tt = clamp01((nowMs - cs.startMs) / cs.durationMs);
+      const e = envAD(tt, cs.preset.attack, cs.preset.decay);
+      const cyc = Math.sin(tt * cs.preset.cycles * Math.PI * 2);
+      lastRenderMods.hueShift = cyc * e;
+      out.hueShift = lastRenderMods.hueShift;
+    }
+
+    // SCALEWAVE
+    const sw = layers.scaleWave.active;
+    if (sw) {
+      const tt = clamp01((nowMs - sw.startMs) / sw.durationMs);
+      const e = envAD(tt, sw.preset.attack, sw.preset.decay);
+      const tSec = (tt * sw.durationMs) / 1000;
+      lastRenderMods.scaleWave = Math.sin(tSec * sw.preset.freqHz * Math.PI * 2) * sw.preset.amp * e;
+      out.scaleMul *= (1 + lastRenderMods.scaleWave);
+      out.sizeMul *= (1 + lastRenderMods.scaleWave);
+    }
+
+    // BURST
+    const bu = layers.burst.active;
+    if (bu) {
+      const tt = clamp01((nowMs - bu.startMs) / bu.durationMs);
+      const e = envAD(tt, bu.preset.attack, bu.preset.decay);
+      lastRenderMods.burstBoost = e;
+      out.densityMul *= bu.preset.densityMul;
+      out.speedMul *= bu.preset.speedMul;
+      out.burst = e;
     }
 
     return out;
   }
 
-  // ==========================================
-  // DRAW WRAPPER (from .updated - essential!)
-  // ==========================================
-  
-  function installDrawWrapper() {
-    if (!window.drawHeart || typeof window.drawHeart !== "function") return false;
-    if (window.drawHeart.__vdayWrapped) return true;
-
-    const original = window.drawHeart;
-
-    function wrappedDrawHeart(ctx, p, render) {
-      const m = lastRenderMods;
-      const hasAny = (m.additiveAlphaMul !== 1) || 
-                     (Math.abs(m.wobbleRad) > 1e-6) || 
-                     (Math.abs(m.hueRotateDeg) > 0.5) || 
-                     m.glowActive;
-
-      if (!state.alertsEnabled || !hasAny) {
-        return original(ctx, p, render);
-      }
-
-      // Base pass (hue + wobble) with additive blend
-      ctx.save();
-      const prevComp = ctx.globalCompositeOperation;
-      const prevAlpha = ctx.globalAlpha;
-      const prevFilter = ctx.filter;
-
-      ctx.globalCompositeOperation = "lighter";
-
-      if (Math.abs(m.hueRotateDeg) > 0.5) {
-        try { ctx.filter = `hue-rotate(${m.hueRotateDeg}deg)`; } catch (_) {}
-      }
-
-      if (Math.abs(m.wobbleRad) > 1e-6) ctx.rotate(m.wobbleRad);
-
-      original(ctx, p, render);
-
-      try { ctx.filter = prevFilter; } catch (_) {}
-      ctx.globalAlpha = prevAlpha;
-      ctx.globalCompositeOperation = prevComp;
-      ctx.restore();
-
-      // Additive second hit
-      if (m.additiveAlphaMul > 1.001) {
-        ctx.save();
-        const prevCompA = ctx.globalCompositeOperation;
-        const prevAlphaA = ctx.globalAlpha;
-        const prevFilterA = ctx.filter;
-
-        ctx.globalCompositeOperation = "lighter";
-        ctx.globalAlpha = prevAlphaA * m.additiveAlphaMul;
-
-        if (Math.abs(m.hueRotateDeg) > 0.5) {
-          try { ctx.filter = `hue-rotate(${m.hueRotateDeg}deg)`; } catch (_) {}
-        }
-        if (Math.abs(m.wobbleRad) > 1e-6) ctx.rotate(m.wobbleRad);
-
-        ctx.scale(1.04, 1.04);
-        original(ctx, p, render);
-
-        try { ctx.filter = prevFilterA; } catch (_) {}
-        ctx.globalAlpha = prevAlphaA;
-        ctx.globalCompositeOperation = prevCompA;
-        ctx.restore();
-      }
-
-      // Glow pass
-      if (m.glowActive) {
-        const alpha = m.glowAlpha;
-        const blurPx = m.glowBlurPx;
-        
-        if (alpha > 0.001 && blurPx > 0.001) {
-          ctx.save();
-          const prevComp2 = ctx.globalCompositeOperation;
-          const prevAlpha2 = ctx.globalAlpha;
-          const prevFilter2 = ctx.filter;
-          const prevShadowBlur = ctx.shadowBlur;
-          const prevShadowColor = ctx.shadowColor;
-
-          ctx.globalCompositeOperation = "lighter";
-
-
-          let usedFilter = false;
-          try {
-            if (typeof ctx.filter === "string") {
-              ctx.filter = `blur(${blurPx}px)`;
-              usedFilter = true;
-            }
-          } catch (_) {}
-
-          if (!usedFilter) {
-            ctx.shadowBlur = blurPx * 2.0;
-            ctx.shadowColor = "rgba(255,255,255,1)";
-          }
-
-          original(ctx, p, render);
-
-          try { ctx.filter = prevFilter2; } catch (_) {}
-          ctx.shadowBlur = prevShadowBlur;
-          ctx.shadowColor = prevShadowColor;
-          ctx.globalAlpha = prevAlpha2;
-          ctx.globalCompositeOperation = prevComp2;
-          ctx.restore();
-        }
-      }
-    }
-
-    wrappedDrawHeart.__vdayWrapped = true;
-    window.drawHeart = wrappedDrawHeart;
-    log("[DRAW] Wrapper installed");
-    return true;
+  function persistUIBridge(data) {
+    try { localStorage.setItem(UI_STORAGE_KEY, JSON.stringify(data)); } catch {}
   }
 
-  // Keep trying until overlay defines drawHeart
-  let __wrapTries = 0;
-  const __wrapIv = setInterval(() => {
-    __wrapTries++;
-    if (installDrawWrapper() || __wrapTries >= 300) { // 5s timeout
-      if (__wrapTries >= 300) warn("[DRAW] Failed to wrap drawHeart after 5s");
-      clearInterval(__wrapIv);
-    }
-  }, 16);
-
-  // ==========================================
-  // RIVE BINDING (from .patched)
-  // ==========================================
-  
-  function tryGetRootVM() {
-    if (window.__VDayRootVM) return window.__VDayRootVM;
-    const ri = window.riveInstance || window.__riveInstance;
-    if (ri && ri.viewModelInstance) return ri.viewModelInstance;
-    return null;
-  }
-
-  function pickMainVM(rootVM) {
+  function loadUIBridge() {
     try {
-      if (rootVM && typeof rootVM.boolean === "function" && rootVM.boolean("alertsEnabled")) return rootVM;
-    } catch {}
-    try {
-      const m = rootVM?.viewModel?.("Main");
-      if (m) return m;
-    } catch {}
-    return null;
+      const raw = localStorage.getItem(UI_STORAGE_KEY);
+      if (!raw) return null;
+      return JSON.parse(raw);
+    } catch {
+      return null;
+    }
   }
 
-  function safeNum(vm, name) {
-    try { return Number(vm.number(name).value); } catch { return null; }
-  }
+  function applyUIBridgeData(d) {
+    if (!d || typeof d !== "object") return;
 
-  function safeVM(vm, name) {
-    try { return vm.viewModel(name); } catch { return null; }
-  }
+    if (typeof d.alertsEnabled === "boolean") state.alertsEnabled = d.alertsEnabled;
+    if (typeof d.alertHub === "number") state.alertHub = d.alertHub;
 
-  function observe(prop, cb, label) {
-    if (!prop) return false;
-    try {
-      if (typeof prop.on === "function") {
-        prop.on(cb);
-        log(`[RIVE] Observing: ${label}`);
-        return true;
-      }
-    } catch (e) {
-      warn(`[RIVE] Observe failed for ${label}`, e);
-    }
-    return false;
-  }
-
-  function bindRive() {
-    const rootVM = tryGetRootVM();
-    if (!rootVM) {
-      state.riveStatus = "waiting";
-      state.riveDetails = "no global RootVM (need __VDayRootVM or riveInstance)";
-      updatePanel();
-      if (!__loggedNoRootVM) { 
-        __loggedNoRootVM = true; 
-        log("[RIVE] waiting: no global root VM yet"); 
-      }
-      return false;
-    }
-
-    const m = pickMainVM(rootVM);
-    if (!m) {
-      state.riveStatus = "failed";
-      state.riveDetails = "Main VM not found";
-      updatePanel();
-      warn("[RIVE] found rootVM but could not locate Main/alertsEnabled");
-      return false;
-    }
-
-    mainVM = m;
-
-    const pAlertsEnabled = (() => { try { return mainVM.boolean("alertsEnabled"); } catch { return null; }})();
-    const pAlertHub = (() => { try { return mainVM.number("alertHub"); } catch { return null; }})();
-
-    if (!pAlertsEnabled || !pAlertHub) {
-      state.riveStatus = "failed";
-      state.riveDetails = "missing alertsEnabled/alertHub";
-      updatePanel();
-      warn("[RIVE] missing required props on Main VM");
-      return false;
-    }
-
-    alertsContainerVM = safeVM(mainVM, "propertyOfAlertInstances") || 
-                       safeVM(mainVM, "AlertInstances") || 
-                       safeVM(mainVM, "alerts");
-
-    // Read current values
-    state.alertsEnabled = !!pAlertsEnabled.value;
-    state.alertHub = Number(pAlertHub.value) || 0;
-
-    // Read effectIds
-    if (alertsContainerVM) {
-      for (const n of ALERT_KEYS) {
-        const a = safeVM(alertsContainerVM, n);
-        const eff = a ? safeNum(a, "effectId") : null;
-        if (eff != null && Number.isFinite(eff)) {
-          state.effectsByAlert[n] = eff;
-        }
-      }
-    }
-
-    // Observe changes
-    observe(pAlertsEnabled, () => {
-      state.alertsEnabled = !!pAlertsEnabled.value;
-      log("[RIVE] alertsEnabled ->", state.alertsEnabled);
-      syncHubConnection();
-      updatePanel();
-    }, "alertsEnabled");
-
-    observe(pAlertHub, () => {
-      state.alertHub = Number(pAlertHub.value) || 0;
-      log("[RIVE] alertHub ->", state.alertHub);
-      syncHubConnection();
-      updatePanel();
-    }, "alertHub");
-
-    if (alertsContainerVM) {
-      for (const n of ALERT_KEYS) {
-        const a = safeVM(alertsContainerVM, n);
-        if (!a) continue;
-        let pEff = null;
-        try { pEff = a.number("effectId"); } catch {}
-        if (!pEff) continue;
-        observe(pEff, () => {
-          state.effectsByAlert[n] = Number(pEff.value) || 0;
-          log(`[RIVE] ${n}.effectId ->`, state.effectsByAlert[n]);
-          updatePanel();
-        }, `${n}.effectId`);
-      }
-    }
-
-    bound = true;
-    state.riveStatus = "bound";
-    state.riveDetails = alertsContainerVM ? "full" : "partial (no alert instances)";
-    updatePanel();
-
-    log("[RIVE] Bound OK", {
-      alertsEnabled: state.alertsEnabled,
-      alertHub: state.alertHub,
-      effects: { ...state.effectsByAlert },
-    });
-
-    syncHubConnection();
-    return true;
-  }
-
-  function bindLoop() {
-    if (bound) return;
-    bindRive();
-    if (!bound) requestAnimationFrame(bindLoop);
-  }
-
-  // ==========================================
-  // UI BRIDGE (from .patched)
-  // ==========================================
-  
-  function applyUIConfig(payload, sourceLabel) {
-    if (!payload || typeof payload !== "object") return;
-
-    let touched = false;
-
-    if (Object.prototype.hasOwnProperty.call(payload, "alertsEnabled")) {
-      state.alertsEnabled = !!payload.alertsEnabled;
-      touched = true;
-    }
-
-    if (Object.prototype.hasOwnProperty.call(payload, "alertHub")) {
-      const hubNum = Number(payload.alertHub);
-      if (!Number.isNaN(hubNum)) {
-        state.alertHub = hubNum;
-        touched = true;
-      }
-    }
-
-    const alertsObj = (payload.alerts && typeof payload.alerts === "object") ? payload.alerts : null;
-    if (alertsObj) {
+    if (d.effectsByAlert && typeof d.effectsByAlert === "object") {
       for (const k of ALERT_KEYS) {
-        const entry = alertsObj[k];
-        if (entry && typeof entry === "object" && Object.prototype.hasOwnProperty.call(entry, "effectId")) {
-          const v = Number(entry.effectId);
-          if (!Number.isNaN(v)) {
-            state.effectsByAlert[k] = v;
-            touched = true;
-          }
-        } else if (Object.prototype.hasOwnProperty.call(alertsObj, k) && typeof alertsObj[k] === "number") {
-          const v = Number(alertsObj[k]);
-          if (!Number.isNaN(v)) {
-            state.effectsByAlert[k] = v;
-            touched = true;
-          }
-        }
+        const v = d.effectsByAlert[k];
+        if (typeof v === "number") state.effectsByAlert[k] = v;
       }
     }
 
-    if (!touched) return;
+    if (typeof d.spawnMode === "string") {
+      state.spawnMode = (d.spawnMode === "trigger") ? "trigger" : "continuous";
+      state.triggerUntilMs = 0;
+    }
 
-    state.riveStatus = "ui-bridge";
-    state.riveDetails = sourceLabel || "ui";
-    updatePanel();
-    log("[UI] Applied config", {
-      alertsEnabled: state.alertsEnabled,
-      alertHub: state.alertHub,
-      effects: { ...state.effectsByAlert },
-      source: sourceLabel,
-    });
-
-    try {
-      localStorage.setItem(UI_STORAGE_KEY, JSON.stringify({
-        alertsEnabled: state.alertsEnabled,
-        alertHub: state.alertHub,
-        alerts: Object.fromEntries(ALERT_KEYS.map(k => [k, { effectId: state.effectsByAlert[k] }]))
-      }));
-    } catch {}
+    if (typeof d.triggerWindowMs === "number" && Number.isFinite(d.triggerWindowMs) && d.triggerWindowMs > 0) {
+      state.triggerWindowMs = d.triggerWindowMs;
+    }
 
     syncHubConnection();
   }
 
   function initUIBridge() {
-    try {
-      const raw = localStorage.getItem(UI_STORAGE_KEY);
-      if (raw) applyUIConfig(JSON.parse(raw), "localStorage");
-    } catch {}
+    const saved = loadUIBridge();
+    if (saved) applyUIBridgeData(saved);
 
     try {
-      if (typeof BroadcastChannel !== "function") {
-        warn("[UI] BroadcastChannel not available");
-        return;
-      }
       const bc = new BroadcastChannel(UI_CHANNEL);
+
       bc.onmessage = (ev) => {
-        const msg = ev?.data;
-        if (!msg || typeof msg !== "object") return;
-        if (msg.type !== "config") return;
-        applyUIConfig(msg.payload, "BroadcastChannel");
+        const d = ev?.data;
+        if (!d || typeof d !== "object") return;
+
+        if (d.type === "alerts") {
+          applyUIBridgeData(d.payload);
+          persistUIBridge(d.payload);
+          log("[UI] Bridge payload applied");
+        }
       };
-      log("[UI] Bridge ready on channel:", UI_CHANNEL);
     } catch (e) {
-      warn("[UI] Bridge init failed", e);
+      warn("[UI] BroadcastChannel not available:", e);
     }
   }
 
-  // ==========================================
-  // WEBSOCKET (from .patched)
-  // ==========================================
-  
   function wsClose() {
-    if (state.ws) {
-      try { 
-        state.ws.onopen = null; 
-        state.ws.onmessage = null; 
-        state.ws.onerror = null; 
-        state.ws.onclose = null; 
-      } catch {}
-      try { state.ws.close(); } catch {}
-    }
+    try { state.ws?.close?.(); } catch {}
     state.ws = null;
-    state.wsHub = HUB.OFF;
-    state.wsStatus = "closed";
-    updatePanel();
+    state.wsStatus = "idle";
   }
 
   function syncHubConnection() {
-    if (!state.alertsEnabled || state.alertHub === HUB.OFF) {
-      if (state.ws) {
-        log("[WS] Disconnecting (alerts OFF)");
-        wsClose();
-      } else {
-        state.wsStatus = "idle";
-        state.wsHub = HUB.OFF;
-        updatePanel();
-      }
+    if (!state.alertsEnabled) {
+      wsClose();
       return;
     }
-
-    if (state.ws && state.wsHub === state.alertHub && state.wsStatus === "open") return;
-
-    wsClose();
-
-    if (state.alertHub === HUB.STREAMERBOT) connectStreamerBot();
-    else if (state.alertHub === HUB.FIREBOT) connectFirebot();
+    if (state.alertHub === HUB.OFF) {
+      wsClose();
+      return;
+    }
   }
 
-  function connectStreamerBot() {
-    const url = "ws://127.0.0.1:8080";
-    state.wsStatus = "connecting";
-    state.wsHub = HUB.STREAMERBOT;
-    updatePanel();
-    log("[WS][SB] Connecting to", url);
-
-    let ws;
-    try { ws = new WebSocket(url); } catch (e) {
-      state.wsStatus = "error";
-      state.lastError = String(e?.message || e);
-      updatePanel();
-      warn("[WS][SB] Connection failed", e);
+  function bindLoop() {
+    if (!window.VDAY || !window.VDAY.rive || bound) {
+      requestAnimationFrame(bindLoop);
       return;
     }
-    state.ws = ws;
 
-    ws.onopen = () => {
-      state.wsStatus = "open";
-      updatePanel();
-      log("[WS][SB] Connected");
-      
-      const subMsg = {
-        request: "Subscribe",
-        id: "vday-sub-1",
-        events: {
-          Twitch: ["Follow", "Sub", "ReSub", "GiftSub", "GiftBomb", "Cheer", "Raid"],
-        },
-      };
-      
-      try {
-        ws.send(JSON.stringify(subMsg));
-        log("[WS][SB] Subscribed to events");
-      } catch (e) {
-        state.lastError = String(e?.message || e);
-        updatePanel();
-      }
-    };
-
-    ws.onerror = (ev) => {
-      state.wsStatus = "error";
-      state.lastError = "WebSocket error";
-      updatePanel();
-      warn("[WS][SB] Error", ev);
-    };
-
-    ws.onclose = (ev) => {
-      state.wsStatus = "closed";
-      updatePanel();
-      log("[WS][SB] Closed", ev?.code);
-    };
-
-    ws.onmessage = (msg) => {
-      const raw = msg?.data;
-      if (!raw) return;
-      
-      if (__wsMsgLogCount_SB < __wsMsgLogLimit) { 
-        __wsMsgLogCount_SB++; 
-        log("[WS][SB] Message:", raw.substring(0, 200)); 
+    try {
+      const rive = window.VDAY.rive;
+      const root = rive.viewModelInstance;
+      if (!root) {
+        requestAnimationFrame(bindLoop);
+        return;
       }
 
-      let j;
-      try { j = JSON.parse(raw); } catch { return; }
+      mainVM = root.viewModel("Main") || null;
+      alertsContainerVM = root.viewModel("Alerts") || null;
 
-      const src = j?.event?.source;
-      const typ = j?.event?.type;
-      if (src !== "Twitch" || !typ) return;
+      bound = true;
+      state.riveStatus = "bound";
+      state.riveDetails = "OK";
+      log("[RIVE] Bound");
+    } catch (e) {
+      state.riveStatus = "error";
+      state.riveDetails = String(e?.message || e);
+      warn("[RIVE] Bind failed:", e);
+    }
 
-      const map = {
-        Follow: "follow",
-        Sub: "sub",
-        ReSub: "resub",
-        GiftSub: "giftsub",
-        GiftBomb: "giftbomb",
-        Cheer: "cheer",
-        Raid: "raid",
-      };
-
-      const alertName = map[typ];
-      if (alertName) dispatch(alertName, j?.data || {});
-    };
+    requestAnimationFrame(bindLoop);
   }
+  
+  function onMessageFromHub(j) {
+    if (!j) return;
 
-  function connectFirebot() {
-    const url = "ws://127.0.0.1:7472";
-    state.wsStatus = "connecting";
-    state.wsHub = HUB.FIREBOT;
-    updatePanel();
-    log("[WS][FB] Connecting to", url);
+    const name = String(j?.type || j?.name || "").toLowerCase();
+    let alertName = null;
 
-    let ws;
-    try { ws = new WebSocket(url); } catch (e) {
-      state.wsStatus = "error";
-      state.lastError = String(e?.message || e);
-      updatePanel();
-      return;
-    }
-    state.ws = ws;
-
-    ws.onopen = () => {
-      state.wsStatus = "open";
-      updatePanel();
-      log("[WS][FB] Connected");
-      
-      const subMsg = { type: "invoke", id: 0, name: "subscribe-events", data: [] };
-      try {
-        ws.send(JSON.stringify(subMsg));
-      } catch (e) {
-        state.lastError = String(e?.message || e);
-        updatePanel();
-      }
-    };
-
-    ws.onerror = () => {
-      state.wsStatus = "error";
-      state.lastError = "WebSocket error";
-      updatePanel();
-    };
-
-    ws.onclose = () => {
-      state.wsStatus = "closed";
-      updatePanel();
-    };
-
-    ws.onmessage = (msg) => {
-      const raw = msg?.data;
-      if (!raw) return;
-      
-      if (__wsMsgLogCount_FB < __wsMsgLogLimit) { 
-        __wsMsgLogCount_FB++; 
-        log("[WS][FB] Message:", raw.substring(0, 200)); 
-      }
-
-      let j;
-      try { j = JSON.parse(raw); } catch { return; }
-
-      const name = String(j?.name || j?.event || j?.type || "").toLowerCase();
-      let alertName = null;
-      
-      if (name.includes("follow")) alertName = "follow";
-      else if (name.includes("resub")) alertName = "resub";
-      else if (name.includes("sub")) alertName = "sub";
-      else if (name.includes("cheer") || name.includes("bits")) alertName = "cheer";
-      else if (name.includes("raid")) alertName = "raid";
-      else if (name.includes("giftbomb") || name.includes("massgift")) alertName = "giftbomb";
+    if (name.includes("follow")) alertName = "follow";
+    else if (name.includes("raid")) alertName = "raid";
+    else if (name.includes("cheer")) alertName = "cheer";
+    else if (name.includes("sub")) {
+      if (name.includes("giftbomb") || name.includes("bulk")) alertName = "giftbomb";
       else if (name.includes("giftsub") || name.includes("gifts")) alertName = "giftsub";
+      else if (name.includes("resub")) alertName = "resub";
+      else alertName = "sub";
+    }
 
-      if (alertName) dispatch(alertName, j?.data || j);
-    };
+    if (alertName) dispatch(alertName, j?.data || j);
   }
-
-  // ==========================================
-  // DISPATCH (main entry point)
-  // ==========================================
   
   function dispatch(alertName, payload) {
     state.lastEvent = String(alertName);
     state.lastEventAt = Date.now();
-    updatePanel();
 
     if (!state.alertsEnabled) {
       log("[DISPATCH] Ignored (alerts disabled):", alertName);
@@ -988,38 +475,19 @@
     }
 
     const nowMs = performance.now();
-    enqueueEffect(effectKey, nowMs);
     activateTriggerWindow(nowMs);
-    log("[DISPATCH]", alertName, "->", effectKey, `(ID:${effId})`);
+
+    enqueueEffect(effectKey, nowMs);
+    log("[DISPATCH]", alertName, "->", effectKey, `(ID:${effId})`, payload || "");
   }
 
-  // ==========================================
-  // KEYBOARD CONTROLS
-  // ==========================================
-  
   window.addEventListener("keydown", (e) => {
     if (e.code === "F8") {
-      state.alertsEnabled = !state.alertsEnabled;
-      log("[KEY] Toggle alerts:", state.alertsEnabled);
-      syncHubConnection();
-      updatePanel();
+      DEBUG = !DEBUG;
+      log("[KEY] DEBUG:", DEBUG);
       return;
     }
-
-    if (e.code === "F7") {
-      state.spawnMode = (state.spawnMode === "trigger") ? "continuous" : "trigger";
-      state.triggerUntilMs = 0;
-      log("[KEY] Spawn mode:", state.spawnMode);
-      updatePanel();
-      return;
-    }
-
-    if (e.code === "F9") {
-      dispatch("follow", { test: true });
-      return;
-    }
-
-    // Numpad 1-8 for direct effect testing
+    
     const numpadMap = {
       "Numpad1": "heartbeat",
       "Numpad2": "glow",
@@ -1035,49 +503,50 @@
       const key = numpadMap[e.code] === "random" ? pickRandomEffect() : numpadMap[e.code];
       enqueueEffect(key, performance.now());
       log("[KEY] Test effect:", key);
-      updatePanel();
+      return;
+    }
+
+    if (e.code === "F7") {
+      state.spawnMode = (state.spawnMode === "trigger") ? "continuous" : "trigger";
+      state.triggerUntilMs = 0;
+      log("[KEY] spawnMode =", state.spawnMode);
+      return;
     }
   });
-
-  // ==========================================
-  // PUBLIC API
-  // ==========================================
   
   window.__vdayAlerts = {
-    // Core overlay interface
     getMultipliers,
-    setSpawnMode: (mode) => {
-      state.spawnMode = (mode === "trigger") ? "trigger" : "continuous";
-      state.triggerUntilMs = 0;
-      updatePanel();
-    },
-    getSpawnMode: () => state.spawnMode,
-    triggerWindow: (ms) => activateTriggerWindow(performance.now(), Number(ms)),
-
     
-    // Control
     dispatch: (alertName, payload) => dispatch(alertName, payload),
     setEnabled: (v) => { 
       state.alertsEnabled = !!v; 
       syncHubConnection();
-      updatePanel();
     },
     isEnabled: () => state.alertsEnabled,
+
+    setSpawnMode: (mode) => {
+      state.spawnMode = (mode === "trigger") ? "trigger" : "continuous";
+      state.triggerUntilMs = 0;
+      log("[ALERTS] spawnMode =", state.spawnMode);
+    },
+    setTriggerWindowMs: (ms) => {
+      const v = Number(ms);
+      if (Number.isFinite(v) && v > 0) {
+        state.triggerWindowMs = v;
+        log("[ALERTS] triggerWindowMs =", v);
+      }
+    },
     
-    // WS Control
     connectHub: () => syncHubConnection(),
     disconnectHub: () => wsClose(),
     
-    // Debug
     setDebug: (v) => { 
       DEBUG = !!v; 
-      updatePanel(); 
+      log("[ALERTS] DEBUG =", DEBUG);
     },
     
-    // Direct effect trigger (for testing)
     triggerEffect: (key) => enqueueEffect(key, performance.now()),
-    
-    // Internal state peek
+
     _debug: () => ({
       state: { ...state },
       layers: Object.fromEntries(Object.keys(layers).map(k => [k, {
@@ -1088,13 +557,9 @@
     })
   };
 
-  // ==========================================
-  // INIT
-  // ==========================================
-  
+
   requestAnimationFrame(bindLoop);
   initUIBridge();
-  updatePanel();
 
-  log("[INIT] Overlay Alerts Unified v2.0 started");
+  log("[INIT] Overlay Alerts cleaned");
 })();
