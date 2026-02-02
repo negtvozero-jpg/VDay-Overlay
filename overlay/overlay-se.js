@@ -87,4 +87,43 @@
 
   window.addEventListener("onWidgetLoad", onFields);
   window.addEventListener("onWidgetUpdate", onFields);
+
+
+  function mapSeEventToAlertKey(detail) {
+    const listener = String(detail?.listener || "").toLowerCase();
+    const ev = detail?.event || {};
+    const type = String(ev?.type || "").toLowerCase();
+
+    if (listener.includes("follow") || listener.includes("follower")) return "follow";
+    if (listener.includes("raid")) return "raid";
+    if (listener.includes("cheer")) return "cheer";
+
+    if (listener.includes("subscriber")) {
+      const isGift = !!(ev.gifted || ev.isGift || ev.gift || ev.is_gift);
+      const bulk = !!(ev.bulkGifted || ev.bulk_gifted);
+      const amount = Number(ev.amount ?? ev.count ?? ev.gifts ?? 0);
+
+      if (bulk || (isGift && amount > 1)) return "giftbomb";
+      if (isGift) return "giftsub";
+      if (type.includes("resub") || Number(ev.months ?? ev.totalMonths ?? 0) > 1) return "resub";
+      return "sub";
+    }
+
+    return null;
+  }
+
+  function onSeEvent(e) {
+    const detail = e?.detail || {};
+    const key = mapSeEventToAlertKey(detail);
+    if (!key) return;
+
+    const A = window.__vdayAlerts;
+    if (!A || typeof A.dispatch !== "function") return;
+
+    if (typeof A.isEnabled === "function" && A.isEnabled() === false) A.setEnabled(true);
+    A.dispatch(key, detail?.event || detail);
+  }
+
+  window.addEventListener("onEventReceived", onSeEvent);
+
 })();
