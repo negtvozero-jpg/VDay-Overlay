@@ -43,6 +43,14 @@
   }
 
   function applyAlertsFields(C, f) {
+    C.followEffect = f.followEffect;
+    C.subEffect = f.subEffect;
+    C.resubEffect = f.resubEffect;
+    C.giftsubEffect = f.giftsubEffect;
+    C.giftbombEffect = f.giftbombEffect;
+    C.cheerEffect = f.cheerEffect;
+    C.raidEffect = f.raidEffect;
+    C.tipEffect = f.tipEffect;
     if (typeof f.spawnMode === "string") {
       const mode = f.spawnMode.trim().toLowerCase();
       C.spawnMode = (mode === "trigger") ? "trigger" : "continuous";
@@ -179,3 +187,4 @@ window.addEventListener("onWidgetLoad", onFields);
   window.addEventListener("onWidgetUpdate", onFields);
   window.addEventListener("onEventReceived", onSeEvent);
 })();
+
