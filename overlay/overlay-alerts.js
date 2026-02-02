@@ -124,13 +124,6 @@
       raid: EFFECT.OFF,
       tip: EFFECT.OFF,
     },
-
-    function activateTriggerWindow(nowMs, extraMs) {
-      if (state.spawnMode !== "trigger") return;
-      const dur = Number.isFinite(extraMs) ? extraMs : state.triggerWindowMs;
-      const until = nowMs + Math.max(0, dur);
-      if (until > state.triggerUntilMs) state.triggerUntilMs = until;
-    }
     
     ws: null,
     wsHub: HUB.OFF,
@@ -142,6 +135,13 @@
     riveStatus: "waiting",
     riveDetails: "",
   };
+  
+    function activateTriggerWindow(nowMs, extraMs) {
+      if (state.spawnMode !== "trigger") return;
+      const dur = Number.isFinite(extraMs) ? extraMs : state.triggerWindowMs;
+      const until = nowMs + Math.max(0, dur);
+      if (until > state.triggerUntilMs) state.triggerUntilMs = until;
+   }
 
   let bound = false;
   let mainVM = null;
