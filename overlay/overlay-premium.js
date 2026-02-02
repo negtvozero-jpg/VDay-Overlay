@@ -46,6 +46,7 @@
   function getPrideImage(idx) {
     if (!prideCache[idx]) {
       const img = new Image();
+      img.crossOrigin = "anonymous";
       img.src = vdayAssetUrl(`/assets-premium/p_${idx}.webp`);
       prideCache[idx] = img;
     }
@@ -57,6 +58,7 @@
   function getTextureImage(idx) {
     if (!textureCache[idx]) {
       const img = new Image();
+      img.crossOrigin = "anonymous";
       img.src = vdayAssetUrl(`/assets-premium/T_${idx}.webp`);
       textureCache[idx] = img;
     }
@@ -100,36 +102,40 @@ const BASE_TOL = 28;
     cctx.clearRect(0, 0, w, h);
     cctx.drawImage(img, 0, 0);
 
-    const im = cctx.getImageData(0, 0, w, h);
-    const d = im.data;
-    const P = argbToRgba(primaryARGB);
-    const S = argbToRgba(secondaryARGB);
+    try {
+      const im = cctx.getImageData(0, 0, w, h);
+      const d = im.data;
+      const P = argbToRgba(primaryARGB);
+      const S = argbToRgba(secondaryARGB);
 
-    for (let i = 0; i < d.length; i += 4) {
-      const a = d[i + 3];
-      if (a === 0) continue;
+      for (let i = 0; i < d.length; i += 4) {
+        const a = d[i + 3];
+        if (a === 0) continue;
 
-      const px = { r: d[i], g: d[i + 1], b: d[i + 2] };
-      const da = distRgb(px, BASE_A);
-      const db = distRgb(px, BASE_B);
+        const px = { r: d[i], g: d[i + 1], b: d[i + 2] };
+        const da = distRgb(px, BASE_A);
+        const db = distRgb(px, BASE_B);
 
-      if (da <= BASE_TOL && da <= db) {
-        d[i] = P.r;
-        d[i + 1] = P.g;
-        d[i + 2] = P.b;
-
-      } else if (db <= BASE_TOL && db < da) {
-        d[i] = S.r;
-        d[i + 1] = S.g;
-        d[i + 2] = S.b;
+        if (da <= BASE_TOL && da <= db) {
+          d[i] = P.r;
+          d[i + 1] = P.g;
+          d[i + 2] = P.b;
+        } else if (db <= BASE_TOL && db < da) {
+          d[i] = S.r;
+          d[i + 1] = S.g;
+          d[i + 2] = S.b;
+        }
       }
+
+      if (textureTintCache.size > 300) textureTintCache.clear();
+
+      cctx.putImageData(im, 0, 0);
+      textureTintCache.set(key, c);
+      return c;
+    } catch (_) {
+      textureTintCache.set(key, img);
+      return img;
     }
-
-    if (textureTintCache.size > 300) textureTintCache.clear();
-
-    cctx.putImageData(im, 0, 0);
-    textureTintCache.set(key, c);
-    return c;
   }
 
   let bc = null;
