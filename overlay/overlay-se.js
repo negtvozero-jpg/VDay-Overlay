@@ -60,6 +60,14 @@
     }
 
     const A = window.__vdayAlerts;
+
+    if (!A) {
+      window.__vdayPendingAlertsCfg = {
+        spawnMode: C.spawnMode,
+        triggerWindowMs: C.triggerWindowMs,
+        alertsEnabled: C.alertsEnabled
+      };
+    }
     if (A) {
       if (typeof A.setSpawnMode === "function" && typeof C.spawnMode === "string") {
         A.setSpawnMode(C.spawnMode);
@@ -152,7 +160,22 @@
     A.dispatch(key, (detail && detail.event) ? detail.event : detail);
   }
 
-  window.addEventListener("onWidgetLoad", onFields);
+  
+  function tryApplyPendingAlertsCfg() {
+    const A = window.__vdayAlerts;
+    const P = window.__vdayPendingAlertsCfg;
+    if (!A || !P) return;
+
+    try {
+      if (typeof A.setSpawnMode === "function" && typeof P.spawnMode === "string") A.setSpawnMode(P.spawnMode);
+      if (typeof A.setTriggerWindowMs === "function" && Number.isFinite(P.triggerWindowMs)) A.setTriggerWindowMs(P.triggerWindowMs);
+      if (typeof A.setEnabled === "function" && typeof P.alertsEnabled === "boolean") A.setEnabled(P.alertsEnabled);
+      if (typeof A.syncFromConfig === "function") A.syncFromConfig();
+    } catch {}
+  }
+
+  setInterval(tryApplyPendingAlertsCfg, 250);
+window.addEventListener("onWidgetLoad", onFields);
   window.addEventListener("onWidgetUpdate", onFields);
   window.addEventListener("onEventReceived", onSeEvent);
 })();
