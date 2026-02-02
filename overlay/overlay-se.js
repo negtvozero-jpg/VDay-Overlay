@@ -1,5 +1,6 @@
 
 (function () {
+  window.__VDAY_SE_FIELDS = true;
   function hexToARGBInt(hex) {
     if (!hex) return null;
     let h = String(hex).trim();
@@ -25,11 +26,6 @@
 
   const PRIDE_KEYS = Array.from({ length: 32 }, (_, i) => `pride_${i}`);
   const TEX_KEYS = Array.from({ length: 32 }, (_, i) => `tex_${i}`);
-
-  let lastTextureValue = null;
-  let lastPrideValue = null;
-  let lastPrimary = null;
-  let lastSecondary = null;
 
   function buildMask(keys, f) {
     let m = 0;
@@ -77,21 +73,7 @@
     C.isPride = (C.prideValue >>> 0) !== 0;
     C.isTexture = (C.textureValue >>> 0) !== 0;
 
-    const curPrimary = C.heartColorARGB >>> 0;
-    const curSecondary = C.heartColorSecondaryARGB >>> 0;
-
-    const texChanged = lastTextureValue !== C.textureValue;
-    const prideChanged = lastPrideValue !== C.prideValue;
-    const colorChanged = lastPrimary !== curPrimary || lastSecondary !== curSecondary;
-
-    lastTextureValue = C.textureValue;
-    lastPrideValue = C.prideValue;
-    lastPrimary = curPrimary;
-    lastSecondary = curSecondary;
-
-    if (texChanged || prideChanged || colorChanged) {
-      window.vdayRebuildTextures?.();
-    }
+    window.vdayRebuildTextures?.();
   }
 
   function onFields(e) {
