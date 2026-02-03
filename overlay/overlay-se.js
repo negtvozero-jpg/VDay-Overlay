@@ -1,6 +1,6 @@
+
 (function () {
   window.__VDAY_SE_FIELDS = true;
-
   function hexToARGBInt(hex) {
     if (!hex) return null;
     let h = String(hex).trim();
@@ -39,41 +39,6 @@
     return m >>> 0;
   }
 
-  function normStr(v) {
-    return String(v ?? "").trim();
-  }
-
-  function normLower(v) {
-    return normStr(v).toLowerCase();
-  }
-
-  function pickMessageText(detail) {
-    const ev = detail?.event || {};
-    return (
-      ev.message ??
-      ev.text ??
-      ev.data?.message ??
-      ev.data?.text ??
-      ev.data?.msg ??
-      ev.data?.content ??
-      ""
-    );
-  }
-
-  function pickRedeemName(detail) {
-    const ev = detail?.event || {};
-    return (
-      ev.rewardName ??
-      ev.reward_name ??
-      ev.redemptionName ??
-      ev.redemption_name ??
-      ev.name ??
-      ev.data?.rewardName ??
-      ev.data?.reward_name ??
-      ev.data?.name ??
-      ""
-    );
-  }
 
   function applyFieldData(f) {
     const C = window.VDAY?.config;
@@ -86,7 +51,7 @@
     setNum(C, "direction", f.direction);
     setNum(C, "sizeMin", f.sizeMin);
     setNum(C, "sizeMax", f.sizeMax);
-
+    
     if (
       Number.isFinite(C.sizeMin) &&
       Number.isFinite(C.sizeMax) &&
@@ -112,15 +77,6 @@
     C.isPride = (C.prideValue >>> 0) !== 0;
     C.isTexture = (C.textureValue >>> 0) !== 0;
 
-    // command / redeem config (SE fields -> VDAY.config)
-    C.commandEnabled = isChecked(f.commandEnabled);
-    if (typeof f.commandText === "string") C.commandText = f.commandText;
-    setNum(C, "commandEffect", f.commandEffect);
-
-    C.redeemEnabled = isChecked(f.redeemEnabled);
-    if (typeof f.redeemName === "string") C.redeemName = f.redeemName;
-    setNum(C, "redeemEffect", f.redeemEffect);
-
     window.vdayRebuildTextures?.();
   }
 
@@ -131,6 +87,7 @@
 
   window.addEventListener("onWidgetLoad", onFields);
   window.addEventListener("onWidgetUpdate", onFields);
+
 
   function mapSeEventToAlertKey(detail) {
     const listener = String(detail?.listener || "").toLowerCase();
@@ -155,54 +112,18 @@
     return null;
   }
 
-  function matchCommand(detail) {
-    const C = window.VDAY?.config;
-    if (!C || !C.commandEnabled) return false;
-
-    const cmd = normLower(C.commandText);
-    if (!cmd) return false;
-
-    const msg = normLower(pickMessageText(detail));
-    if (!msg) return false;
-
-    const tok = msg.split(/\s+/)[0] || "";
-    return tok === cmd;
-  }
-
-  function matchRedeem(detail) {
-    const C = window.VDAY?.config;
-    if (!C || !C.redeemEnabled) return false;
-
-    const want = normLower(C.redeemName);
-    if (!want) return false;
-
-    const got = normLower(pickRedeemName(detail));
-    return got && got === want;
-  }
-
   function onSeEvent(e) {
     const detail = e?.detail || {};
-    const A = window.__vdayAlerts;
-    if (!A || typeof A.dispatch !== "function") return;
-
-    if (matchCommand(detail)) {
-      if (typeof A.isEnabled === "function" && A.isEnabled() === false) A.setEnabled(true);
-      A.dispatch("command", detail?.event || detail);
-      return;
-    }
-
-    if (matchRedeem(detail)) {
-      if (typeof A.isEnabled === "function" && A.isEnabled() === false) A.setEnabled(true);
-      A.dispatch("redeem", detail?.event || detail);
-      return;
-    }
-
     const key = mapSeEventToAlertKey(detail);
     if (!key) return;
+
+    const A = window.__vdayAlerts;
+    if (!A || typeof A.dispatch !== "function") return;
 
     if (typeof A.isEnabled === "function" && A.isEnabled() === false) A.setEnabled(true);
     A.dispatch(key, detail?.event || detail);
   }
 
   window.addEventListener("onEventReceived", onSeEvent);
+
 })();
