@@ -5,6 +5,645 @@
     ? window.debug
     : { log: function () {} };
 
+  if (!window.__vdayAlerts) {
+    (function () {
+      "use strict";
+
+      const EFFECT = Object.freeze({
+        OFF: 0,
+        HEARTBEAT: 1,
+        GLOW: 2,
+        WOBBLE: 3,
+        ADDITIVE: 4,
+        COLORSHIFT: 5,
+        SCALEWAVE: 6,
+        BURST: 7,
+        RANDOM: 8,
+        SPAWN_ONLY: 9,
+      });
+
+      const ID_TO_KEY = {
+        [EFFECT.HEARTBEAT]: "heartbeat",
+        [EFFECT.GLOW]: "glow",
+        [EFFECT.WOBBLE]: "wobble",
+        [EFFECT.ADDITIVE]: "additive",
+        [EFFECT.COLORSHIFT]: "colorShift",
+        [EFFECT.SCALEWAVE]: "scaleWave",
+        [EFFECT.BURST]: "burst",
+        [EFFECT.RANDOM]: "random",
+      };
+
+      const PRESETS = {
+        heartbeat: {
+          durationMs: 1800,
+          beatsPerSecond: 2.6,
+          pulseStrength: 0.7,
+          densityMul: 1.0,
+          speedMul: 1.0,
+        },
+        glow: {
+          durationMs: 2200,
+          attack: 0.06,
+          decay: 0.35,
+          alphaMax: 100,
+          blurMaxPx: 150,
+          strength: 20,
+          lightenHoldRatio: 0.5,
+        },
+        additive: {
+          durationMs: 1000,
+          attack: 0.04,
+          decay: 0.5,
+          alphaAmp: 5,
+        },
+        wobble: {
+          durationMs: 1500,
+          attack: 0.04,
+          decay: 0.28,
+          angleRad: (90 * Math.PI) / 180,
+          freqHz: 3.0,
+        },
+        colorShift: {
+          durationMs: 2200,
+          attack: 0.03,
+          decay: 0.25,
+          cycles: 5,
+        },
+        scaleWave: {
+          durationMs: 1100,
+          attack: 0.04,
+          decay: 0.28,
+          amp: 0.5,
+          freqHz: 5.5,
+        },
+        burst: {
+          durationMs: 900,
+          attack: 0.03,
+          decay: 0.18,
+          densityMul: 10,
+          speedMul: 5,
+        },
+      };
+
+      const MAX_QUEUE = {
+        heartbeat: 12,
+        glow: 10,
+        additive: 14,
+        wobble: 14,
+        colorShift: 10,
+        scaleWave: 12,
+        burst: 8,
+      };
+
+      const OVERFLOW_POLICY = "drop_oldest";
+
+      let DEBUG = true; 
+
+      const state = {
+
+        alertsEnabled: true,
+        spawnMode: "continuous",
+        triggerUntilMs: 0,
+        triggerWindowMs: 6000,
+
+        commandEnabled: false,
+        commandTriggerWindowMs: 6000,
+
+        redeemEnabled: false,
+        redeemTriggerWindowMs: 6000,
+
+        effectsByAlert: {
+          follow: EFFECT.OFF,
+          sub: EFFECT.OFF,
+          resub: EFFECT.OFF,
+          giftsub: EFFECT.OFF,
+          giftbomb: EFFECT.OFF,
+          cheer: EFFECT.OFF,
+          raid: EFFECT.OFF,
+          tip: EFFECT.OFF,
+          command: EFFECT.OFF,
+          redeem: EFFECT.OFF,
+        },
+      };
+
+      function log(...a) { if (DEBUG) debug.log("[VDAY][SE][ALERTS]", ...a); }
+      function clamp01(x) { return x < 0 ? 0 : x > 1 ? 1 : x; }
+
+      function anySourceEnabled() {
+        return !!(state.alertsEnabled || state.commandEnabled || state.redeemEnabled);
+      }
+
+      function isAnyTriggerMode() {
+        return state.spawnMode === "trigger";
+      }
+
+      function activateTriggerWindow(nowMs, source, extraMs) {
+        if (state.spawnMode !== "trigger") return;
+
+        let dur = state.triggerWindowMs;
+        if (source === "command") dur = state.commandTriggerWindowMs;
+        else if (source === "redeem") dur = state.redeemTriggerWindowMs;
+
+        const useMs = Number.isFinite(extraMs) ? extraMs : dur;
+        const until = nowMs + Math.max(0, useMs);
+        if (until > state.triggerUntilMs) state.triggerUntilMs = until;
+      }
+
+      function easeOutCubic(t) {
+        const u = 1 - t;
+        return 1 - u * u * u;
+      }
+
+      function pulseAD(t, attack, decay) {
+        if (t < 0) return 0;
+        const a = 1 - Math.exp(-t / Math.max(attack, 1e-6));
+        const d = Math.exp(-t / Math.max(decay, 1e-6));
+        return a * d;
+      }
+
+      function pickRandomEffect() {
+        const pool = ["heartbeat", "glow", "burst", "additive", "wobble", "colorShift", "scaleWave"];
+        return pool[(Math.random() * pool.length) | 0] || "heartbeat";
+      }
+
+      function makeLayer(key) {
+        return {
+          key,
+          preset: PRESETS[key],
+          queue: [],
+          active: null,
+        };
+      }
+
+      const layers = {
+        heartbeat: makeLayer("heartbeat"),
+        glow: makeLayer("glow"),
+        additive: makeLayer("additive"),
+        wobble: makeLayer("wobble"),
+        colorShift: makeLayer("colorShift"),
+        scaleWave: makeLayer("scaleWave"),
+        burst: makeLayer("burst"),
+      };
+
+      function layerCap(key) { return MAX_QUEUE[key] ?? 10; }
+
+      function applyOverflow(queue, cap) {
+        while (queue.length > cap) {
+          if (OVERFLOW_POLICY === "drop_new") queue.pop();
+          else queue.shift();
+        }
+      }
+
+      let lastFrameMs = 0;
+      let lastRenderMods = {
+        additiveAlphaMul: 1,
+        wobbleRad: 0,
+        hueRotateDeg: 0,
+        glowActive: false,
+        glowAlpha: 0,
+        glowBlurPx: 0,
+        glowLightenAlpha: 0,
+      };
+
+      function resetRenderMods() {
+        lastRenderMods.additiveAlphaMul = 1;
+        lastRenderMods.wobbleRad = 0;
+        lastRenderMods.hueRotateDeg = 0;
+        lastRenderMods.glowActive = false;
+        lastRenderMods.glowAlpha = 0;
+        lastRenderMods.glowBlurPx = 0;
+        lastRenderMods.glowLightenAlpha = 0;
+      }
+
+      function enqueueEffect(effectKey, nowMs, bypassAlertsEnabled) {
+        if (!bypassAlertsEnabled && !state.alertsEnabled) return;
+        if (!state.effectsByAlert || Object.values(state.effectsByAlert).every(v => v === EFFECT.OFF)) return;
+
+        const layer = layers[effectKey];
+        if (!layer) return;
+
+        layer.queue.push({ createdAt: nowMs });
+        applyOverflow(layer.queue, layerCap(effectKey));
+        log("[EFFECT] enqueued:", effectKey, "queueLen=", layer.queue.length);
+      }
+
+      function startNextIfIdle(layer, nowMs) {
+        if (layer.active) return;
+        if (layer.queue.length === 0) return;
+
+        layer.queue.shift();
+
+        let durationMs = 1000;
+        if (layer.key === "heartbeat") durationMs = PRESETS.heartbeat.durationMs;
+        else durationMs = Math.max(1, layer.preset?.durationMs || 1000);
+
+        let tailFactor = 0;
+        if (layer.key !== "heartbeat") {
+          const d = layer.preset?.decay || 0;
+          tailFactor = Math.min(1.6, d * 3);
+        }
+
+        layer.active = {
+          startMs: nowMs,
+          endMs: nowMs + durationMs * (1 + tailFactor),
+          durationMs,
+        };
+      }
+
+      function tickLayer(layer, nowMs) {
+        if (layer.active && nowMs >= layer.active.endMs) layer.active = null;
+        startNextIfIdle(layer, nowMs);
+      }
+
+      function computeHeartbeatSizeMul(tt, durationMs) {
+        const preset = PRESETS.heartbeat;
+        const ramp = easeOutCubic(Math.min(1, tt / 0.15));
+        const decay = 1 - tt;
+        const env = ramp * decay;
+        const phase = 2 * Math.PI * preset.beatsPerSecond * (tt * (durationMs / 1000));
+        const pulse = Math.max(0, Math.sin(phase));
+        return 1 + (preset.pulseStrength * env * pulse);
+      }
+
+      function __toNum(v) {
+        if (typeof v === "number") return Number.isFinite(v) ? v : null;
+        if (typeof v === "string") {
+          const n = Number(v.trim());
+          return Number.isFinite(n) ? n : null;
+        }
+        return null;
+      }
+
+      function syncFromConfig() {
+        const C = window.VDAY && window.VDAY.config;
+        if (!C) return;
+
+        if (typeof C.alertsEnabled === "boolean") state.alertsEnabled = C.alertsEnabled;
+
+        if (typeof C.spawnMode === "string") {
+          const m = C.spawnMode.trim().toLowerCase();
+          state.spawnMode = (m === "trigger") ? "trigger" : "continuous";
+        }
+
+        const tw = __toNum(C.triggerWindowMs);
+        if (tw != null && tw > 0) state.triggerWindowMs = tw;
+
+        if (typeof C.commandEnabled === "boolean") state.commandEnabled = C.commandEnabled;
+        if (typeof C.redeemEnabled === "boolean") state.redeemEnabled = C.redeemEnabled;
+
+        const ctw = __toNum(C.commandTriggerWindowMs);
+        if (ctw != null && ctw > 0) state.commandTriggerWindowMs = ctw;
+
+        const rtw = __toNum(C.redeemTriggerWindowMs);
+        if (rtw != null && rtw > 0) state.redeemTriggerWindowMs = rtw;
+
+        const map = {
+          follow: "followEffect",
+          sub: "subEffect",
+          resub: "resubEffect",
+          giftsub: "giftsubEffect",
+          giftbomb: "giftbombEffect",
+          cheer: "cheerEffect",
+          raid: "raidEffect",
+          tip: "tipEffect",
+          command: "commandEffect",
+          redeem: "redeemEffect",
+        };
+
+        for (const k in map) {
+          const v = __toNum(C[map[k]]);
+          if (v != null) state.effectsByAlert[k] = v;
+        }
+      }
+
+      function getMultipliers(nowMs) {
+        syncFromConfig();
+        if (!lastFrameMs) lastFrameMs = nowMs;
+        lastFrameMs = nowMs;
+
+        for (const k of Object.keys(layers)) tickLayer(layers[k], nowMs);
+
+        const out = {
+          densityMul: 1,
+          speedMul: 1,
+          sizeMul: 1,
+          scaleMul: 1,
+          alphaMul: 1,
+          hueShift: 0,
+          additive: 0,
+          wobble: 0,
+          glow: 0,
+          burst: 0,
+        };
+
+        resetRenderMods();
+
+        if (isAnyTriggerMode() && nowMs >= state.triggerUntilMs) {
+          const hasActiveEffects = Object.values(layers).some(l => l.active || l.queue.length > 0);
+          if (!hasActiveEffects) out.densityMul = 0;
+        }
+
+        if (!anySourceEnabled()) return out;
+
+        const hb = layers.heartbeat.active;
+        if (hb) {
+          const tt = clamp01((nowMs - hb.startMs) / hb.durationMs);
+          const size = computeHeartbeatSizeMul(tt, hb.durationMs);
+          out.sizeMul *= size;
+          out.scaleMul *= size;
+          out.densityMul *= PRESETS.heartbeat.densityMul;
+          out.speedMul *= PRESETS.heartbeat.speedMul;
+          out.glow = (size - 1) * 2;
+        }
+
+        const b = layers.burst.active;
+        if (b) {
+          const tSec = (nowMs - b.startMs) / 1000;
+          const env = pulseAD(tSec, PRESETS.burst.attack, PRESETS.burst.decay);
+          out.densityMul *= (1 + (PRESETS.burst.densityMul - 1) * env);
+          out.speedMul *= (1 + (PRESETS.burst.speedMul - 1) * env);
+          out.burst = env;
+        }
+
+        const sw = layers.scaleWave.active;
+        if (sw) {
+          const tSec = (nowMs - sw.startMs) / 1000;
+          const env = pulseAD(tSec, PRESETS.scaleWave.attack, PRESETS.scaleWave.decay);
+          const wave = Math.sin(2 * Math.PI * PRESETS.scaleWave.freqHz * tSec);
+          const size = 1 + (PRESETS.scaleWave.amp * env * wave);
+          out.sizeMul *= size;
+          out.scaleMul *= size;
+        }
+
+        const ad = layers.additive.active;
+        if (ad) {
+          const tSec = (nowMs - ad.startMs) / 1000;
+          const env = pulseAD(tSec, PRESETS.additive.attack, PRESETS.additive.decay);
+          lastRenderMods.additiveAlphaMul = 1 + (PRESETS.additive.alphaAmp * env);
+          out.additive = env;
+        }
+
+        const wb = layers.wobble.active;
+        if (wb) {
+          const tSec = (nowMs - wb.startMs) / 1000;
+          const env = pulseAD(tSec, PRESETS.wobble.attack, PRESETS.wobble.decay);
+          const phase = 2 * Math.PI * PRESETS.wobble.freqHz * tSec;
+          lastRenderMods.wobbleRad = PRESETS.wobble.angleRad * env * Math.sin(phase);
+          out.wobble = lastRenderMods.wobbleRad;
+        }
+
+        const cs = layers.colorShift.active;
+        if (cs) {
+          const tSec = (nowMs - cs.startMs) / 1000;
+          const env = pulseAD(tSec, PRESETS.colorShift.attack, PRESETS.colorShift.decay);
+          const durSec = Math.max(0.001, cs.durationMs / 1000);
+          const prog = clamp01(tSec / durSec);
+          lastRenderMods.hueRotateDeg = 360 * PRESETS.colorShift.cycles * prog * env;
+          out.hueShift = lastRenderMods.hueRotateDeg;
+        }
+
+        const gl = layers.glow.active;
+        if (gl) {
+          const tSec = (nowMs - gl.startMs) / 1000;
+          const preset = PRESETS.glow;
+          const env = pulseAD(tSec, preset.attack, preset.decay);
+          
+          lastRenderMods.glowActive = env > 0.001;
+          lastRenderMods.glowAlpha = Math.min(1.75, 0.15 + 1.35 * env);
+          lastRenderMods.glowBlurPx = Math.min(18, 2 + (preset.blurMaxPx * 1.6) * env);
+
+          const holdRatio = preset.lightenHoldRatio ?? 0.5;
+          const durSec = gl.durationMs / 1000;
+          const progress = tSec / durSec;
+          
+          let lightenEnv;
+          if (progress < holdRatio) {
+            lightenEnv = 1;
+          } else {
+            const decayProgress = (progress - holdRatio) / (1 - holdRatio);
+            lightenEnv = Math.exp(-decayProgress * 3); 
+          }
+          
+          lastRenderMods.glowLightenAlpha = lightenEnv;
+          out.glow = env;
+          out.alphaMul = 1 + 0.2 * env;
+        }
+
+        return out;
+      }
+
+      function installDrawWrapper() {
+        if (!window.drawHeart || typeof window.drawHeart !== "function") return false;
+        if (window.drawHeart.__vdayWrapped) return true;
+
+        const original = window.drawHeart;
+
+        function wrappedDrawHeart(ctx, p, render) {
+          const m = lastRenderMods;
+          const hasAny = (m.additiveAlphaMul !== 1) ||
+            (Math.abs(m.wobbleRad) > 1e-6) ||
+            (Math.abs(m.hueRotateDeg) > 0.5) ||
+            m.glowActive;
+
+          if (!anySourceEnabled() || !hasAny) {
+            return original(ctx, p, render);
+          }
+
+          const hasTransform = Math.abs(m.wobbleRad) > 1e-6 || Math.abs(m.hueRotateDeg) > 0.5;
+          
+          if (hasTransform) {
+            ctx.save();
+            const prevFilter = ctx.filter;
+            
+            if (Math.abs(m.hueRotateDeg) > 0.5) {
+              try { ctx.filter = `hue-rotate(${m.hueRotateDeg}deg)`; } catch (_) {}
+            }
+            if (Math.abs(m.wobbleRad) > 1e-6) ctx.rotate(m.wobbleRad);
+            
+            original(ctx, p, render);
+            
+            try { ctx.filter = prevFilter; } catch (_) {}
+            ctx.restore();
+          } else {
+            original(ctx, p, render);
+          }
+
+          if (m.additiveAlphaMul > 1.001) {
+            ctx.save();
+            const prevCompA = ctx.globalCompositeOperation;
+            const prevAlphaA = ctx.globalAlpha;
+            const prevFilterA = ctx.filter;
+
+            ctx.globalCompositeOperation = "lighter";
+            ctx.globalAlpha = prevAlphaA * clamp01(m.additiveAlphaMul - 1);
+
+            if (Math.abs(m.hueRotateDeg) > 0.5) {
+              try { ctx.filter = `hue-rotate(${m.hueRotateDeg}deg)`; } catch (_) {}
+            }
+            if (Math.abs(m.wobbleRad) > 1e-6) ctx.rotate(m.wobbleRad);
+
+            ctx.scale(1.04, 1.04);
+            original(ctx, p, render);
+
+            try { ctx.filter = prevFilterA; } catch (_) {}
+            ctx.globalAlpha = prevAlphaA;
+            ctx.globalCompositeOperation = prevCompA;
+            ctx.restore();
+          }
+
+          if (m.glowActive) {
+            const alpha = m.glowAlpha;
+            const blurPx = m.glowBlurPx;
+            const lightenAlpha = m.glowLightenAlpha;
+
+            if (alpha > 0.001 && blurPx > 0.001) {
+              
+              ctx.save();
+              const prevComp = ctx.globalCompositeOperation;
+              const prevAlpha = ctx.globalAlpha;
+              const prevFilter = ctx.filter;
+              const prevShadowBlur = ctx.shadowBlur;
+              const prevShadowColor = ctx.shadowColor;
+
+              ctx.globalCompositeOperation = "source-over";
+              ctx.globalAlpha = prevAlpha * clamp01(alpha * 0.6);
+
+              let usedFilter = false;
+              try {
+                if (typeof ctx.filter === "string") {
+                  ctx.filter = `blur(${blurPx}px) brightness(1.3)`;
+                  usedFilter = true;
+                }
+              } catch (_) {}
+
+              if (!usedFilter) {
+                ctx.shadowBlur = blurPx * 1.5;
+                ctx.shadowColor = "rgba(255,200,200,0.8)";
+              }
+
+              original(ctx, p, render);
+
+              try { ctx.filter = prevFilter; } catch (_) {}
+              ctx.shadowBlur = prevShadowBlur;
+              ctx.shadowColor = prevShadowColor;
+              ctx.globalAlpha = prevAlpha;
+              ctx.globalCompositeOperation = prevComp;
+              ctx.restore();
+
+              if (lightenAlpha > 0.01) {
+                ctx.save();
+                const prevComp2 = ctx.globalCompositeOperation;
+                const prevAlpha2 = ctx.globalAlpha;
+                
+                ctx.globalCompositeOperation = "lighter";
+                ctx.globalAlpha = prevAlpha2 * clamp01(lightenAlpha * 0.4); 
+                ctx.scale(0.95, 0.95);
+                
+                original(ctx, p, render);
+                
+                ctx.globalAlpha = prevAlpha2;
+                ctx.globalCompositeOperation = prevComp2;
+                ctx.restore();
+              }
+            }
+          }
+        }
+
+        wrappedDrawHeart.__vdayWrapped = true;
+        window.drawHeart = wrappedDrawHeart;
+        log("[DRAW] Wrapper installed");
+        return true;
+      }
+
+      let __wrapTries = 0;
+      const __wrapIv = setInterval(() => {
+        __wrapTries++;
+        if (installDrawWrapper() || __wrapTries >= 300) {
+          if (__wrapTries >= 300) debug.log("[VDAY][SE][ALERTS] Failed to wrap drawHeart after 5s");
+          clearInterval(__wrapIv);
+        }
+      }, 16);
+
+      function dispatch(alertName, payload) {
+        syncFromConfig();
+        const key = String(alertName).toLowerCase();
+        const nowMs = performance.now();
+
+        const isCmd = key === "command";
+        const isRed = key === "redeem";
+
+        if (isCmd && !state.commandEnabled) { log("[DISPATCH] command ignored: disabled"); return; }
+        if (isRed && !state.redeemEnabled) { log("[DISPATCH] redeem ignored: disabled"); return; }
+
+        if (!isCmd && !isRed && !state.alertsEnabled) {
+          log("[DISPATCH] ignored (alerts disabled):", alertName);
+          return;
+        }
+
+        const effId = Number(state.effectsByAlert[key] ?? EFFECT.OFF);
+
+        if (isCmd) activateTriggerWindow(nowMs, "command");
+        else if (isRed) activateTriggerWindow(nowMs, "redeem");
+        else activateTriggerWindow(nowMs, "alerts");
+
+        if (effId === EFFECT.OFF) {
+          log("[DISPATCH] ignored (effect OFF):", alertName);
+          return;
+        }
+
+        if (effId === EFFECT.SPAWN_ONLY) {
+          log("[DISPATCH]", alertName, "-> spawnOnly");
+          return;
+        }
+
+        let effectKey = ID_TO_KEY[effId];
+        if (effId === EFFECT.RANDOM || !effectKey) effectKey = pickRandomEffect();
+
+        enqueueEffect(effectKey, nowMs, isCmd || isRed);
+        log("[DISPATCH]", alertName, "->", effectKey, `(ID:${effId})`, payload ? "" : "");
+      }
+
+      window.__vdayAlerts = {
+        __source: "se",
+        getMultipliers,
+        dispatch: (alertName, payload) => dispatch(alertName, payload),
+
+        setEnabled: (v) => { state.alertsEnabled = !!v; log("[CFG] alertsEnabled =", state.alertsEnabled); },
+        isEnabled: () => state.alertsEnabled,
+
+        syncFromConfig,
+
+        setSpawnMode: (mode) => {
+          state.spawnMode = (mode === "trigger") ? "trigger" : "continuous";
+          state.triggerUntilMs = 0;
+          log("[CFG] spawnMode =", state.spawnMode);
+        },
+        setTriggerWindowMs: (ms) => {
+          const v = Number(ms);
+          if (Number.isFinite(v) && v > 0) {
+            state.triggerWindowMs = v;
+            log("[CFG] triggerWindowMs =", v);
+          }
+        },
+
+        setDebug: (v) => { DEBUG = !!v; },
+
+        _debug: () => ({
+          state: { ...state },
+          layers: Object.fromEntries(Object.keys(layers).map(k => [k, {
+            queue: layers[k].queue.length,
+            active: !!layers[k].active
+          }])),
+          mods: { ...lastRenderMods }
+        })
+      };
+
+      debug.log("[VDAY][SE][ALERTS] Engine ready");
+    })();
+  } else {
+    debug.log("[VDAY][SE] __vdayAlerts already exists (not overriding)");
+  }
+
   function hexToARGBInt(hex) {
     if (!hex) return null;
     let h = String(hex).trim();
