@@ -69,7 +69,7 @@
       freqHz: 3.0,
     },
     colorShift: {
-      durationMs: 2200,
+      durationMs: 5200,
       attack: 0.03,
       decay: 0.25,
       cycles: 5,
