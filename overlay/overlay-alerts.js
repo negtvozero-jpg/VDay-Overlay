@@ -38,7 +38,7 @@
   const ALERT_KEYS = ["follow","sub","resub","giftsub","giftbomb","cheer","raid","tip"];
   const UI_CHANNEL = "vday-config";
   const UI_STORAGE_KEY = "vday_alerts_ui_bridge_v1";
-  
+
   const PRESETS = {
     heartbeat: {
       durationMs: 1800,
@@ -115,11 +115,9 @@
     triggerWindowMs: 6000,
 
     commandEnabled: false,
-    commandSpawnMode: "continuous",
     commandTriggerWindowMs: 6000,
 
     redeemEnabled: false,
-    redeemSpawnMode: "continuous",
     redeemTriggerWindowMs: 6000,
 
     alertHub: HUB.OFF,
@@ -146,28 +144,17 @@
     riveStatus: "waiting",
     riveDetails: "",
   };
-  
-    function isAnyTriggerMode() {
-    return (
-      (state.alertsEnabled && state.spawnMode === "trigger") ||
-      (state.commandEnabled && state.commandSpawnMode === "trigger") ||
-      (state.redeemEnabled && state.redeemSpawnMode === "trigger")
-    );
+
+  function isAnyTriggerMode() {
+    return state.spawnMode === "trigger";
   }
 
   function activateTriggerWindow(nowMs, source, extraMs) {
-    let mode = state.spawnMode;
+    if (state.spawnMode !== "trigger") return;
+
     let dur = state.triggerWindowMs;
-
-    if (source === "command") {
-      mode = state.commandSpawnMode;
-      dur = state.commandTriggerWindowMs;
-    } else if (source === "redeem") {
-      mode = state.redeemSpawnMode;
-      dur = state.redeemTriggerWindowMs;
-    }
-
-    if (mode !== "trigger") return;
+    if (source === "command") dur = state.commandTriggerWindowMs;
+    else if (source === "redeem") dur = state.redeemTriggerWindowMs;
 
     const useMs = Number.isFinite(extraMs) ? extraMs : dur;
     const until = nowMs + Math.max(0, useMs);
@@ -194,9 +181,9 @@
 
   function log(...a) { if (DEBUG) debug.log("[ALERTS]", ...a); }
   function warn(...a) { debug.log("[ALERTS]", ...a); }
-  
+
   function clamp01(x) { return x < 0 ? 0 : x > 1 ? 1 : x; }
-  
+
   function easeOutCubic(t) {
     const u = 1 - t;
     return 1 - u * u * u;
@@ -248,12 +235,10 @@
     }
   }
 
-  function enqueueEffect(effectKey, nowMs) {
-    if (!state.alertsEnabled) return;
-    if (!state.effectsByAlert || Object.values(state.effectsByAlert).every(v => v === EFFECT.OFF)) {
-      return;
-    }
-    
+  function enqueueEffect(effectKey, nowMs, bypassAlertsEnabled) {
+    if (!bypassAlertsEnabled && !state.alertsEnabled) return;
+    if (!state.effectsByAlert || Object.values(state.effectsByAlert).every(v => v === EFFECT.OFF)) return;
+
     const layer = layers[effectKey];
     if (!layer) return;
 
@@ -303,7 +288,6 @@
     return 1 + (preset.pulseStrength * env * pulse);
   }
 
-  
   function __toNum(v) {
     if (typeof v === "number") return Number.isFinite(v) ? v : null;
     if (typeof v === "string") {
@@ -330,15 +314,6 @@
     if (typeof C.commandEnabled === "boolean") state.commandEnabled = C.commandEnabled;
     if (typeof C.redeemEnabled === "boolean") state.redeemEnabled = C.redeemEnabled;
 
-    if (typeof C.commandSpawnMode === "string") {
-      const m = C.commandSpawnMode.trim().toLowerCase();
-      state.commandSpawnMode = (m === "trigger") ? "trigger" : "continuous";
-    }
-    if (typeof C.redeemSpawnMode === "string") {
-      const m = C.redeemSpawnMode.trim().toLowerCase();
-      state.redeemSpawnMode = (m === "trigger") ? "trigger" : "continuous";
-    }
-
     const ctw = __toNum(C.commandTriggerWindowMs);
     if (ctw != null && ctw > 0) state.commandTriggerWindowMs = ctw;
 
@@ -363,7 +338,8 @@
       if (v != null) state.effectsByAlert[k] = v;
     }
   }
-function resetRenderMods() {
+
+  function resetRenderMods() {
     lastRenderMods.additiveAlphaMul = 1;
     lastRenderMods.wobbleRad = 0;
     lastRenderMods.hueRotateDeg = 0;
@@ -400,7 +376,6 @@ function resetRenderMods() {
 
     if (!state.alertsEnabled) return out;
 
-    // HEARTBEAT
     const hb = layers.heartbeat.active;
     if (hb) {
       const tt = clamp01((nowMs - hb.startMs) / hb.durationMs);
@@ -409,10 +384,9 @@ function resetRenderMods() {
       out.scaleMul *= size;
       out.densityMul *= PRESETS.heartbeat.densityMul;
       out.speedMul *= PRESETS.heartbeat.speedMul;
-      out.glow = (size - 1) * 2; 
+      out.glow = (size - 1) * 2;
     }
 
-    // BURST
     const b = layers.burst.active;
     if (b) {
       const tSec = (nowMs - b.startMs) / 1000;
@@ -422,7 +396,6 @@ function resetRenderMods() {
       out.burst = env;
     }
 
-    // SCALE WAVE
     const sw = layers.scaleWave.active;
     if (sw) {
       const tSec = (nowMs - sw.startMs) / 1000;
@@ -433,7 +406,6 @@ function resetRenderMods() {
       out.scaleMul *= size;
     }
 
-    // ADDITIVE
     const ad = layers.additive.active;
     if (ad) {
       const tSec = (nowMs - ad.startMs) / 1000;
@@ -442,7 +414,6 @@ function resetRenderMods() {
       out.additive = env;
     }
 
-    // WOBBLE
     const wb = layers.wobble.active;
     if (wb) {
       const tSec = (nowMs - wb.startMs) / 1000;
@@ -452,7 +423,6 @@ function resetRenderMods() {
       out.wobble = lastRenderMods.wobbleRad;
     }
 
-    // COLOR SHIFT
     const cs = layers.colorShift.active;
     if (cs) {
       const tSec = (nowMs - cs.startMs) / 1000;
@@ -463,7 +433,6 @@ function resetRenderMods() {
       out.hueShift = lastRenderMods.hueRotateDeg;
     }
 
-    // GLOW
     const gl = layers.glow.active;
     if (gl) {
       const tSec = (nowMs - gl.startMs) / 1000;
@@ -486,10 +455,10 @@ function resetRenderMods() {
 
     function wrappedDrawHeart(ctx, p, render) {
       const m = lastRenderMods;
-      const hasAny = (m.additiveAlphaMul !== 1) || 
-                     (Math.abs(m.wobbleRad) > 1e-6) || 
-                     (Math.abs(m.hueRotateDeg) > 0.5) || 
-                     m.glowActive;
+      const hasAny = (m.additiveAlphaMul !== 1) ||
+        (Math.abs(m.wobbleRad) > 1e-6) ||
+        (Math.abs(m.hueRotateDeg) > 0.5) ||
+        m.glowActive;
 
       if (!state.alertsEnabled || !hasAny) {
         return original(ctx, p, render);
@@ -541,7 +510,7 @@ function resetRenderMods() {
       if (m.glowActive) {
         const alpha = m.glowAlpha;
         const blurPx = m.glowBlurPx;
-        
+
         if (alpha > 0.001 && blurPx > 0.001) {
           ctx.save();
           const prevComp2 = ctx.globalCompositeOperation;
@@ -587,7 +556,7 @@ function resetRenderMods() {
   let __wrapTries = 0;
   const __wrapIv = setInterval(() => {
     __wrapTries++;
-    if (installDrawWrapper() || __wrapTries >= 300) { // 5s timeout
+    if (installDrawWrapper() || __wrapTries >= 300) {
       if (__wrapTries >= 300) warn("[DRAW] Failed to wrap drawHeart after 5s");
       clearInterval(__wrapIv);
     }
@@ -638,10 +607,9 @@ function resetRenderMods() {
     if (!rootVM) {
       state.riveStatus = "waiting";
       state.riveDetails = "no global RootVM (need __VDayRootVM or riveInstance)";
-      
-      if (!__loggedNoRootVM) { 
-        __loggedNoRootVM = true; 
-        log("[RIVE] waiting: no global root VM yet"); 
+      if (!__loggedNoRootVM) {
+        __loggedNoRootVM = true;
+        log("[RIVE] waiting: no global root VM yet");
       }
       return false;
     }
@@ -650,7 +618,6 @@ function resetRenderMods() {
     if (!m) {
       state.riveStatus = "failed";
       state.riveDetails = "Main VM not found";
-      
       warn("[RIVE] found rootVM but could not locate Main/alertsEnabled");
       return false;
     }
@@ -663,14 +630,13 @@ function resetRenderMods() {
     if (!pAlertsEnabled || !pAlertHub) {
       state.riveStatus = "failed";
       state.riveDetails = "missing alertsEnabled/alertHub";
-      
       warn("[RIVE] missing required props on Main VM");
       return false;
     }
 
-    alertsContainerVM = safeVM(mainVM, "propertyOfAlertInstances") || 
-                       safeVM(mainVM, "AlertInstances") || 
-                       safeVM(mainVM, "alerts");
+    alertsContainerVM = safeVM(mainVM, "propertyOfAlertInstances") ||
+      safeVM(mainVM, "AlertInstances") ||
+      safeVM(mainVM, "alerts");
 
     state.alertsEnabled = !!pAlertsEnabled.value;
     state.alertHub = Number(pAlertHub.value) || 0;
@@ -689,14 +655,12 @@ function resetRenderMods() {
       state.alertsEnabled = !!pAlertsEnabled.value;
       log("[RIVE] alertsEnabled ->", state.alertsEnabled);
       syncHubConnection();
-      
     }, "alertsEnabled");
 
     observe(pAlertHub, () => {
       state.alertHub = Number(pAlertHub.value) || 0;
       log("[RIVE] alertHub ->", state.alertHub);
       syncHubConnection();
-      
     }, "alertHub");
 
     if (alertsContainerVM) {
@@ -709,7 +673,6 @@ function resetRenderMods() {
         observe(pEff, () => {
           state.effectsByAlert[n] = Number(pEff.value) || 0;
           log(`[RIVE] ${n}.effectId ->`, state.effectsByAlert[n]);
-          
         }, `${n}.effectId`);
       }
     }
@@ -717,7 +680,6 @@ function resetRenderMods() {
     bound = true;
     state.riveStatus = "bound";
     state.riveDetails = alertsContainerVM ? "full" : "partial (no alert instances)";
-    
 
     log("[RIVE] Bound OK", {
       alertsEnabled: state.alertsEnabled,
@@ -777,7 +739,7 @@ function resetRenderMods() {
 
     state.riveStatus = "ui-bridge";
     state.riveDetails = sourceLabel || "ui";
-    
+
     log("[UI] Applied config", {
       alertsEnabled: state.alertsEnabled,
       alertHub: state.alertHub,
@@ -822,18 +784,17 @@ function resetRenderMods() {
 
   function wsClose() {
     if (state.ws) {
-      try { 
-        state.ws.onopen = null; 
-        state.ws.onmessage = null; 
-        state.ws.onerror = null; 
-        state.ws.onclose = null; 
+      try {
+        state.ws.onopen = null;
+        state.ws.onmessage = null;
+        state.ws.onerror = null;
+        state.ws.onclose = null;
       } catch {}
       try { state.ws.close(); } catch {}
     }
     state.ws = null;
     state.wsHub = HUB.OFF;
     state.wsStatus = "closed";
-    
   }
 
   function syncHubConnection() {
@@ -844,7 +805,6 @@ function resetRenderMods() {
       } else {
         state.wsStatus = "idle";
         state.wsHub = HUB.OFF;
-        
       }
       return;
     }
@@ -861,14 +821,13 @@ function resetRenderMods() {
     const url = "ws://127.0.0.1:8080";
     state.wsStatus = "connecting";
     state.wsHub = HUB.STREAMERBOT;
-    
+
     log("[WS][SB] Connecting to", url);
 
     let ws;
     try { ws = new WebSocket(url); } catch (e) {
       state.wsStatus = "error";
       state.lastError = String(e?.message || e);
-      
       warn("[WS][SB] Connection failed", e);
       return;
     }
@@ -876,9 +835,8 @@ function resetRenderMods() {
 
     ws.onopen = () => {
       state.wsStatus = "open";
-      
       log("[WS][SB] Connected");
-      
+
       const subMsg = {
         request: "Subscribe",
         id: "vday-sub-1",
@@ -886,36 +844,33 @@ function resetRenderMods() {
           Twitch: ["Follow", "Sub", "ReSub", "GiftSub", "GiftBomb", "Cheer", "Raid"],
         },
       };
-      
+
       try {
         ws.send(JSON.stringify(subMsg));
         log("[WS][SB] Subscribed to events");
       } catch (e) {
         state.lastError = String(e?.message || e);
-        
       }
     };
 
     ws.onerror = (ev) => {
       state.wsStatus = "error";
       state.lastError = "WebSocket error";
-      
       warn("[WS][SB] Error", ev);
     };
 
     ws.onclose = (ev) => {
       state.wsStatus = "closed";
-      
       log("[WS][SB] Closed", ev?.code);
     };
 
     ws.onmessage = (msg) => {
       const raw = msg?.data;
       if (!raw) return;
-      
-      if (__wsMsgLogCount_SB < __wsMsgLogLimit) { 
-        __wsMsgLogCount_SB++; 
-        log("[WS][SB] Message:", raw.substring(0, 200)); 
+
+      if (__wsMsgLogCount_SB < __wsMsgLogLimit) {
+        __wsMsgLogCount_SB++;
+        log("[WS][SB] Message:", raw.substring(0, 200));
       }
 
       let j;
@@ -944,50 +899,45 @@ function resetRenderMods() {
     const url = "ws://127.0.0.1:7472";
     state.wsStatus = "connecting";
     state.wsHub = HUB.FIREBOT;
-    
+
     log("[WS][FB] Connecting to", url);
 
     let ws;
     try { ws = new WebSocket(url); } catch (e) {
       state.wsStatus = "error";
       state.lastError = String(e?.message || e);
-      
       return;
     }
     state.ws = ws;
 
     ws.onopen = () => {
       state.wsStatus = "open";
-      
       log("[WS][FB] Connected");
-      
+
       const subMsg = { type: "invoke", id: 0, name: "subscribe-events", data: [] };
       try {
         ws.send(JSON.stringify(subMsg));
       } catch (e) {
         state.lastError = String(e?.message || e);
-        
       }
     };
 
     ws.onerror = () => {
       state.wsStatus = "error";
       state.lastError = "WebSocket error";
-      
     };
 
     ws.onclose = () => {
       state.wsStatus = "closed";
-      
     };
 
     ws.onmessage = (msg) => {
       const raw = msg?.data;
       if (!raw) return;
-      
-      if (__wsMsgLogCount_FB < __wsMsgLogLimit) { 
-        __wsMsgLogCount_FB++; 
-        log("[WS][FB] Message:", raw.substring(0, 200)); 
+
+      if (__wsMsgLogCount_FB < __wsMsgLogLimit) {
+        __wsMsgLogCount_FB++;
+        log("[WS][FB] Message:", raw.substring(0, 200));
       }
 
       let j;
@@ -995,7 +945,7 @@ function resetRenderMods() {
 
       const name = String(j?.name || j?.event || j?.type || "").toLowerCase();
       let alertName = null;
-      
+
       if (name.includes("follow")) alertName = "follow";
       else if (name.includes("resub")) alertName = "resub";
       else if (name.includes("sub")) alertName = "sub";
@@ -1047,17 +997,15 @@ function resetRenderMods() {
       effectKey = pickRandomEffect();
     }
 
-    enqueueEffect(effectKey, nowMs);
+    enqueueEffect(effectKey, nowMs, isCmd || isRed);
     log("[DISPATCH]", alertName, "->", effectKey, `(ID:${effId})`);
   }
-
 
   window.addEventListener("keydown", (e) => {
     if (e.code === "F8") {
       state.alertsEnabled = !state.alertsEnabled;
       log("[KEY] Toggle alerts:", state.alertsEnabled);
       syncHubConnection();
-      
       return;
     }
 
@@ -1079,20 +1027,17 @@ function resetRenderMods() {
 
     if (numpadMap[e.code]) {
       const key = numpadMap[e.code] === "random" ? pickRandomEffect() : numpadMap[e.code];
-      enqueueEffect(key, performance.now());
+      enqueueEffect(key, performance.now(), false);
       log("[KEY] Test effect:", key);
-      
     }
   });
-
 
   window.__vdayAlerts = {
     getMultipliers,
     dispatch: (alertName, payload) => dispatch(alertName, payload),
-    setEnabled: (v) => { 
-      state.alertsEnabled = !!v; 
+    setEnabled: (v) => {
+      state.alertsEnabled = !!v;
       syncHubConnection();
-      
     },
     isEnabled: () => state.alertsEnabled,
     syncFromConfig,
@@ -1112,13 +1057,9 @@ function resetRenderMods() {
 
     connectHub: () => syncHubConnection(),
     disconnectHub: () => wsClose(),
-    setDebug: (v) => { 
-      DEBUG = !!v; 
-       
-    },
-    
-    triggerEffect: (key) => enqueueEffect(key, performance.now()),
-    
+    setDebug: (v) => { DEBUG = !!v; },
+    triggerEffect: (key) => enqueueEffect(key, performance.now(), false),
+
     _debug: () => ({
       state: { ...state },
       layers: Object.fromEntries(Object.keys(layers).map(k => [k, {
@@ -1131,7 +1072,5 @@ function resetRenderMods() {
 
   requestAnimationFrame(bindLoop);
   initUIBridge();
-  
-
-  log("[INIT] Overlay Alerts Unified v2.0 started");
+  log("[INIT] Overlay Alerts started");
 })();
