@@ -51,6 +51,13 @@
     C.cheerEffect = f.cheerEffect;
     C.raidEffect = f.raidEffect;
     C.tipEffect = f.tipEffect;
+    C.commandEnabled = isChecked(f.commandEnabled);
+    if (typeof f.commandText === "string") C.commandText = f.commandText;
+    C.commandEffect = f.commandEffect;
+
+    C.redeemEnabled = isChecked(f.redeemEnabled);
+    if (typeof f.redeemName === "string") C.redeemName = f.redeemName;
+    C.redeemEffect = f.redeemEffect;
     if (typeof f.spawnMode === "string") {
       const mode = f.spawnMode.trim().toLowerCase();
       C.spawnMode = (mode === "trigger") ? "trigger" : "continuous";
@@ -131,6 +138,36 @@
     const f = (e && e.detail && e.detail.fieldData) ? e.detail.fieldData : {};
     requestAnimationFrame(() => applyFieldData(f));
   }
+  function normStr(v) {
+    return String(v ?? "").trim();
+  }
+
+  function normLower(v) {
+    return normStr(v).toLowerCase();
+  }
+
+  function pickMessageText(detail) {
+    const ev = (detail && detail.event) ? detail.event : {};
+    return (
+      ev.message ??
+      ev.text ??
+      (ev.data && (ev.data.message ?? ev.data.text ?? ev.data.msg ?? ev.data.content)) ??
+      ""
+    );
+  }
+
+  function pickRedeemName(detail) {
+    const ev = (detail && detail.event) ? detail.event : {};
+    return (
+      ev.rewardName ??
+      ev.reward_name ??
+      ev.redemptionName ??
+      ev.redemption_name ??
+      ev.name ??
+      (ev.data && (ev.data.rewardName ?? ev.data.reward_name ?? ev.data.name)) ??
+      ""
+    );
+  }
 
   function mapSeEventToAlertKey(detail) {
     const listener = String(detail && detail.listener ? detail.listener : "").toLowerCase();
@@ -158,15 +195,43 @@
 
   function onSeEvent(e) {
     const detail = (e && e.detail) ? e.detail : {};
-    const key = mapSeEventToAlertKey(detail);
-    if (!key) return;
 
+    const C = window.VDAY && window.VDAY.config;
     const A = window.__vdayAlerts;
     if (!A || typeof A.dispatch !== "function") return;
+
+    if (C && C.commandEnabled) {
+      const cmd = normLower(C.commandText);
+      if (cmd) {
+        const msg = normLower(pickMessageText(detail));
+        const tok = msg ? (msg.split(/\s+/)[0] || "") : "";
+        if (tok === cmd) {
+          debug.log("[VDAY][SE] dispatch", "command");
+          A.dispatch("command", (detail && detail.event) ? detail.event : detail);
+          return;
+        }
+      }
+    }
+
+    if (C && C.redeemEnabled) {
+      const want = normLower(C.redeemName);
+      if (want) {
+        const got = normLower(pickRedeemName(detail));
+        if (got === want) {
+          debug.log("[VDAY][SE] dispatch", "redeem");
+          A.dispatch("redeem", (detail && detail.event) ? detail.event : detail);
+          return;
+        }
+      }
+    }
+
+    const key = mapSeEventToAlertKey(detail);
+    if (!key) return;
 
     debug.log("[VDAY][SE] dispatch", key);
     A.dispatch(key, (detail && detail.event) ? detail.event : detail);
   }
+
 
   
   function tryApplyPendingAlertsCfg() {
