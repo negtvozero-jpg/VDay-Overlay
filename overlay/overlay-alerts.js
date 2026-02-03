@@ -328,7 +328,7 @@
       raid: "raidEffect",
       tip: "tipEffect",
       command: "commandEffect",
-      redeem: "redeemEffect",
+      redeem: "redeemEnabled",
     };
 
     for (const k in map) {
@@ -369,7 +369,10 @@
     resetRenderMods();
 
     if (isAnyTriggerMode() && nowMs >= state.triggerUntilMs) {
-      out.densityMul = 0;
+      const hasActiveEffects = Object.values(layers).some(l => l.active || l.queue.length > 0);
+      if (!hasActiveEffects) {
+        out.densityMul = 0;
+      }
     }
 
     if (!anySourceEnabled()) return out;
@@ -796,9 +799,11 @@
   }
 
   function syncHubConnection() {
-    if (!state.alertsEnabled || state.alertHub === HUB.OFF) {
+    const needsConnection = state.alertsEnabled || state.commandEnabled || state.redeemEnabled;
+    
+    if (!needsConnection || state.alertHub === HUB.OFF) {
       if (state.ws) {
-        log("[WS] Disconnecting (alerts OFF)");
+        log("[WS] Disconnecting (no active sources)");
         wsClose();
       } else {
         state.wsStatus = "idle";
