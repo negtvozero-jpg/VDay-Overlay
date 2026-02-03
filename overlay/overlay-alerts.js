@@ -328,7 +328,7 @@
       raid: "raidEffect",
       tip: "tipEffect",
       command: "commandEffect",
-      redeem: "redeemEnabled",
+      redeem: "redeemEffect",
     };
 
     for (const k in map) {
@@ -369,10 +369,7 @@
     resetRenderMods();
 
     if (isAnyTriggerMode() && nowMs >= state.triggerUntilMs) {
-      const hasActiveEffects = Object.values(layers).some(l => l.active || l.queue.length > 0);
-      if (!hasActiveEffects) {
-        out.densityMul = 0;
-      }
+      out.densityMul = 0;
     }
 
     if (!anySourceEnabled()) return out;
@@ -628,6 +625,9 @@
     const pAlertsEnabled = (() => { try { return mainVM.boolean("alertsEnabled"); } catch { return null; }})();
     const pAlertHub = (() => { try { return mainVM.number("alertHub"); } catch { return null; }})();
 
+    const pCommandEnabled = (() => { try { return mainVM.boolean("commandEnabled"); } catch { return null; }})();
+    const pRedeemEnabled = (() => { try { return mainVM.boolean("redeemEnabled"); } catch { return null; }})();
+
     if (!pAlertsEnabled || !pAlertHub) {
       state.riveStatus = "failed";
       state.riveDetails = "missing alertsEnabled/alertHub";
@@ -642,6 +642,9 @@
     state.alertsEnabled = !!pAlertsEnabled.value;
     state.alertHub = Number(pAlertHub.value) || 0;
 
+    if (pCommandEnabled) state.commandEnabled = !!pCommandEnabled.value;
+    if (pRedeemEnabled) state.redeemEnabled = !!pRedeemEnabled.value;
+
     if (alertsContainerVM) {
       for (const n of ALERT_KEYS) {
         const a = safeVM(alertsContainerVM, n);
@@ -650,6 +653,12 @@
           state.effectsByAlert[n] = eff;
         }
       }
+      const cmdVM = safeVM(alertsContainerVM, "command");
+      const redVM = safeVM(alertsContainerVM, "redeem");
+      const cmdEff = cmdVM ? safeNum(cmdVM, "effectId") : null;
+      const redEff = redVM ? safeNum(redVM, "effectId") : null;
+      if (cmdEff != null && Number.isFinite(cmdEff)) state.effectsByAlert.command = cmdEff;
+      if (redEff != null && Number.isFinite(redEff)) state.effectsByAlert.redeem = redEff;
     }
 
     observe(pAlertsEnabled, () => {
@@ -664,6 +673,22 @@
       syncHubConnection();
     }, "alertHub");
 
+    if (pCommandEnabled) {
+      observe(pCommandEnabled, () => {
+        state.commandEnabled = !!pCommandEnabled.value;
+        log("[RIVE] commandEnabled ->", state.commandEnabled);
+        syncHubConnection();
+      }, "commandEnabled");
+    }
+
+    if (pRedeemEnabled) {
+      observe(pRedeemEnabled, () => {
+        state.redeemEnabled = !!pRedeemEnabled.value;
+        log("[RIVE] redeemEnabled ->", state.redeemEnabled);
+        syncHubConnection();
+      }, "redeemEnabled");
+    }
+
     if (alertsContainerVM) {
       for (const n of ALERT_KEYS) {
         const a = safeVM(alertsContainerVM, n);
@@ -676,6 +701,26 @@
           log(`[RIVE] ${n}.effectId ->`, state.effectsByAlert[n]);
         }, `${n}.effectId`);
       }
+
+      const cmdVM = safeVM(alertsContainerVM, "command");
+      if (cmdVM) {
+        let pEff = null;
+        try { pEff = cmdVM.number("effectId"); } catch {}
+        if (pEff) observe(pEff, () => {
+          state.effectsByAlert.command = Number(pEff.value) || 0;
+          log("[RIVE] command.effectId ->", state.effectsByAlert.command);
+        }, "command.effectId");
+      }
+
+      const redVM = safeVM(alertsContainerVM, "redeem");
+      if (redVM) {
+        let pEff = null;
+        try { pEff = redVM.number("effectId"); } catch {}
+        if (pEff) observe(pEff, () => {
+          state.effectsByAlert.redeem = Number(pEff.value) || 0;
+          log("[RIVE] redeem.effectId ->", state.effectsByAlert.redeem);
+        }, "redeem.effectId");
+      }
     }
 
     bound = true;
@@ -684,6 +729,8 @@
 
     log("[RIVE] Bound OK", {
       alertsEnabled: state.alertsEnabled,
+      commandEnabled: state.commandEnabled,
+      redeemEnabled: state.redeemEnabled,
       alertHub: state.alertHub,
       effects: { ...state.effectsByAlert },
     });
@@ -708,6 +755,16 @@
       touched = true;
     }
 
+    if (Object.prototype.hasOwnProperty.call(payload, "commandEnabled")) {
+      state.commandEnabled = !!payload.commandEnabled;
+      touched = true;
+    }
+
+    if (Object.prototype.hasOwnProperty.call(payload, "redeemEnabled")) {
+      state.redeemEnabled = !!payload.redeemEnabled;
+      touched = true;
+    }
+
     if (Object.prototype.hasOwnProperty.call(payload, "alertHub")) {
       const hubNum = Number(payload.alertHub);
       if (!Number.isNaN(hubNum)) {
@@ -718,7 +775,7 @@
 
     const alertsObj = (payload.alerts && typeof payload.alerts === "object") ? payload.alerts : null;
     if (alertsObj) {
-      for (const k of ALERT_KEYS) {
+      for (const k of ALERT_KEYS.concat(["command","redeem"])) {
         const entry = alertsObj[k];
         if (entry && typeof entry === "object" && Object.prototype.hasOwnProperty.call(entry, "effectId")) {
           const v = Number(entry.effectId);
@@ -743,6 +800,8 @@
 
     log("[UI] Applied config", {
       alertsEnabled: state.alertsEnabled,
+      commandEnabled: state.commandEnabled,
+      redeemEnabled: state.redeemEnabled,
       alertHub: state.alertHub,
       effects: { ...state.effectsByAlert },
       source: sourceLabel,
@@ -751,8 +810,12 @@
     try {
       localStorage.setItem(UI_STORAGE_KEY, JSON.stringify({
         alertsEnabled: state.alertsEnabled,
+        commandEnabled: state.commandEnabled,
+        redeemEnabled: state.redeemEnabled,
         alertHub: state.alertHub,
-        alerts: Object.fromEntries(ALERT_KEYS.map(k => [k, { effectId: state.effectsByAlert[k] }]))
+        alerts: Object.fromEntries(
+          ALERT_KEYS.concat(["command","redeem"]).map(k => [k, { effectId: state.effectsByAlert[k] }])
+        )
       }));
     } catch {}
 
@@ -783,6 +846,44 @@
     }
   }
 
+  function initStreamElementsBridge() {
+    const handler = (obj) => {
+      const detail = obj?.detail || obj;
+      const listener = detail?.listener;
+      const ev = detail?.event;
+
+      if (!listener || !ev) return;
+
+      if (listener === "message") {
+        const text = String(ev?.data?.text || ev?.data?.message || ev?.message || "").trim();
+        if (text.startsWith("!")) dispatch("command", ev);
+        return;
+      }
+
+      if (listener === "event") {
+        const type = String(ev?.type || ev?.name || "").toLowerCase();
+
+        if (type === "follower-latest" || type === "follow") return dispatch("follow", ev);
+        if (type === "subscriber-latest" || type === "sub") return dispatch("sub", ev);
+        if (type === "resubscriber-latest" || type === "resub") return dispatch("resub", ev);
+        if (type === "subgifts-latest" || type === "giftsub") return dispatch("giftsub", ev);
+        if (type === "cheer-latest" || type === "cheer") return dispatch("cheer", ev);
+        if (type === "raid-latest" || type === "raid") return dispatch("raid", ev);
+        if (type === "tip-latest" || type === "tip" || type === "donation") return dispatch("tip", ev);
+
+        const isRedeem =
+          type.includes("redemption") ||
+          type.includes("reward") ||
+          type.includes("channelpoints") ||
+          type.includes("points");
+        if (isRedeem) return dispatch("redeem", ev);
+      }
+    };
+
+    try { window.addEventListener("onEventReceived", handler); } catch {}
+    try { window.addEventListener("onWidgetLoad", handler); } catch {}
+  }
+
   function wsClose() {
     if (state.ws) {
       try {
@@ -799,11 +900,11 @@
   }
 
   function syncHubConnection() {
-    const needsConnection = state.alertsEnabled || state.commandEnabled || state.redeemEnabled;
-    
-    if (!needsConnection || state.alertHub === HUB.OFF) {
+    const wantWs = (state.alertHub !== HUB.OFF) && anySourceEnabled();
+
+    if (!wantWs) {
       if (state.ws) {
-        log("[WS] Disconnecting (no active sources)");
+        log("[WS] Disconnecting (no sources enabled or hub OFF)");
         wsClose();
       } else {
         state.wsStatus = "idle";
@@ -1075,5 +1176,6 @@
 
   requestAnimationFrame(bindLoop);
   initUIBridge();
+  initStreamElementsBridge();
   log("[INIT] Overlay Alerts started");
 })();
