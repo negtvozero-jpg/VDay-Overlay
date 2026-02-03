@@ -145,6 +145,10 @@
     riveDetails: "",
   };
 
+  function anySourceEnabled() {
+    return !!(state.alertsEnabled || state.commandEnabled || state.redeemEnabled);
+  }
+
   function isAnyTriggerMode() {
     return state.spawnMode === "trigger";
   }
@@ -194,12 +198,6 @@
     const a = 1 - Math.exp(-t / Math.max(attack, 1e-6));
     const d = Math.exp(-t / Math.max(decay, 1e-6));
     return a * d;
-  }
-
-  function hubLabel(h) {
-    if (h === HUB.STREAMERBOT) return "streamerbot";
-    if (h === HUB.FIREBOT) return "firebot";
-    return "off";
   }
 
   function pickRandomEffect() {
@@ -374,7 +372,7 @@
       out.densityMul = 0;
     }
 
-    if (!state.alertsEnabled) return out;
+    if (!anySourceEnabled()) return out;
 
     const hb = layers.heartbeat.active;
     if (hb) {
@@ -460,7 +458,7 @@
         (Math.abs(m.hueRotateDeg) > 0.5) ||
         m.glowActive;
 
-      if (!state.alertsEnabled || !hasAny) {
+      if (!anySourceEnabled() || !hasAny) {
         return original(ctx, p, render);
       }
 
