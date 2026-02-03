@@ -368,11 +368,7 @@
 
     resetRenderMods();
 
-    // CORREÇÃO 1: No modo trigger, verifica se há ALGUM efeito ativo OU se ainda está na janela de trigger
-    // Em vez de apenas verificar se alertas estão ativos, verifica se command/redeem também podem manter o spawn
     if (isAnyTriggerMode() && nowMs >= state.triggerUntilMs) {
-      // Se não há nenhuma fonte ativa (alerts, command, redeem), então zera o spawn
-      // Se pelo menos uma fonte está ativa e tem efeitos na fila/atuais, mantém o spawn
       const hasActiveEffects = Object.values(layers).some(l => l.active || l.queue.length > 0);
       if (!hasActiveEffects) {
         out.densityMul = 0;
@@ -803,8 +799,6 @@
   }
 
   function syncHubConnection() {
-    // CORREÇÃO 2: Só desconecta WebSocket se NENHUMA fonte estiver ativa
-    // Se alertsEnabled está desativado mas command ou redeem estão ativos, mantém a conexão
     const needsConnection = state.alertsEnabled || state.commandEnabled || state.redeemEnabled;
     
     if (!needsConnection || state.alertHub === HUB.OFF) {
@@ -987,7 +981,6 @@
     const effId = Number(state.effectsByAlert[key] ?? EFFECT.OFF);
     const nowMs = performance.now();
 
-    // CORREÇÃO 3: Command e redeem também ativam a janela de trigger
     if (isCmd) activateTriggerWindow(nowMs, "command");
     else if (isRed) activateTriggerWindow(nowMs, "redeem");
     else activateTriggerWindow(nowMs, "alerts");
@@ -1007,7 +1000,6 @@
       effectKey = pickRandomEffect();
     }
 
-    // Passa true para bypassAlertsEnabled quando é command ou redeem
     enqueueEffect(effectKey, nowMs, isCmd || isRed);
     log("[DISPATCH]", alertName, "->", effectKey, `(ID:${effId})`);
   }
