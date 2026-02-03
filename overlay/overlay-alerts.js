@@ -1,6 +1,10 @@
 (() => {
   "use strict";
 
+  const debug = (window.debug && typeof window.debug.log === "function")
+    ? window.debug
+    : { log: function () {} };
+
   const EFFECT = Object.freeze({
     OFF: 0,
     HEARTBEAT: 1,
@@ -11,6 +15,7 @@
     SCALEWAVE: 6,
     BURST: 7,
     RANDOM: 8,
+    SPAWN_ONLY: 9,
   });
 
   const ID_TO_KEY = {
@@ -30,10 +35,10 @@
     FIREBOT: 2,
   });
 
-  const ALERT_KEYS = ["follow","sub","resub","giftsub","giftbomb","cheer","raid","tip","command","redeem"];
+  const ALERT_KEYS = ["follow","sub","resub","giftsub","giftbomb","cheer","raid","tip"];
   const UI_CHANNEL = "vday-config";
   const UI_STORAGE_KEY = "vday_alerts_ui_bridge_v1";
-
+  
   const PRESETS = {
     heartbeat: {
       durationMs: 1800,
@@ -97,15 +102,17 @@
 
   const OVERFLOW_POLICY = "drop_oldest";
 
-  let DEBUG = true;
+  let DEBUG = false;
   let __loggedNoRootVM = false;
   let __wsMsgLogCount_SB = 0;
   let __wsMsgLogCount_FB = 0;
   const __wsMsgLogLimit = 5;
 
   const state = {
-
-    alertsEnabled: false,
+    alertsEnabled: true,
+    spawnMode: "continuous",
+    triggerUntilMs: 0,
+    triggerWindowMs: 6000,
     alertHub: HUB.OFF,
     effectsByAlert: {
       follow: EFFECT.OFF,
@@ -116,8 +123,6 @@
       cheer: EFFECT.OFF,
       raid: EFFECT.OFF,
       tip: EFFECT.OFF,
-      command: EFFECT.OFF,
-      redeem: EFFECT.OFF,
     },
     
     ws: null,
@@ -130,47 +135,15 @@
     riveStatus: "waiting",
     riveDetails: "",
   };
-
   
-  function syncFromConfig() {
-    const C = window.VDAY && window.VDAY.config;
-    if (!C) return;
+    function activateTriggerWindow(nowMs, extraMs) {
+      if (state.spawnMode !== "trigger") return;
+      const dur = Number.isFinite(extraMs) ? extraMs : state.triggerWindowMs;
+      const until = nowMs + Math.max(0, dur);
+      if (until > state.triggerUntilMs) state.triggerUntilMs = until;
+   }
 
-    if (typeof C.alertsEnabled === "boolean") state.alertsEnabled = C.alertsEnabled;
-
-    if (typeof C.spawnMode === "string") {
-      const m = C.spawnMode.trim().toLowerCase();
-      state.spawnMode = (m === "trigger") ? "trigger" : "continuous";
-      if (state.spawnMode !== "trigger") state.triggerUntilMs = 0;
-    }
-
-    if (C.triggerWindowMs != null) {
-      const ms = (typeof C.triggerWindowMs === "string")
-        ? Number(String(C.triggerWindowMs).replace(",", "."))
-        : Number(C.triggerWindowMs);
-      if (Number.isFinite(ms) && ms > 0) state.triggerWindowMs = ms;
-    }
-
-    const map = {
-      follow: "followEffect",
-      sub: "subEffect",
-      resub: "resubEffect",
-      giftsub: "giftsubEffect",
-      giftbomb: "giftbombEffect",
-      cheer: "cheerEffect",
-      raid: "raidEffect",
-      tip: "tipEffect",
-      command: "commandEffect",
-      redeem: "redeemEffect"
-    };
-
-    for (const k in map) {
-      const v = C[map[k]];
-      const n = (typeof v === "string") ? Number(v.replace(",", ".")) : Number(v);
-      if (Number.isFinite(n)) state.effectsByAlert[k] = n;
-    }
-  }
-let bound = false;
+  let bound = false;
   let mainVM = null;
   let alertsContainerVM = null;
 
@@ -187,9 +160,9 @@ let bound = false;
     glowAlpha: 0,
     glowBlurPx: 0,
   };
-  
-  function log(...a) { if (DEBUG) console.log("[ALERTS]", ...a); }
-  function warn(...a) { console.warn("[ALERTS]", ...a); }
+
+  function log(...a) { if (DEBUG) debug.log("[ALERTS]", ...a); }
+  function warn(...a) { debug.log("[ALERTS]", ...a); }
   
   function clamp01(x) { return x < 0 ? 0 : x > 1 ? 1 : x; }
   
@@ -215,7 +188,7 @@ let bound = false;
     const pool = ["heartbeat", "glow", "burst", "additive", "wobble", "colorShift", "scaleWave"];
     return pool[(Math.random() * pool.length) | 0] || "heartbeat";
   }
-  
+
   function makeLayer(key) {
     return {
       key,
@@ -299,7 +272,47 @@ let bound = false;
     return 1 + (preset.pulseStrength * env * pulse);
   }
 
-  function resetRenderMods() {
+  
+  function __toNum(v) {
+    if (typeof v === "number") return Number.isFinite(v) ? v : null;
+    if (typeof v === "string") {
+      const n = Number(v.trim());
+      return Number.isFinite(n) ? n : null;
+    }
+    return null;
+  }
+
+  function syncFromConfig() {
+    const C = window.VDAY && window.VDAY.config;
+    if (!C) return;
+
+    if (typeof C.alertsEnabled === "boolean") state.alertsEnabled = C.alertsEnabled;
+
+    if (typeof C.spawnMode === "string") {
+      const m = C.spawnMode.trim().toLowerCase();
+      state.spawnMode = (m === "trigger") ? "trigger" : "continuous";
+    }
+
+    const tw = __toNum(C.triggerWindowMs);
+    if (tw != null && tw > 0) state.triggerWindowMs = tw;
+
+    const map = {
+      follow: "followEffect",
+      sub: "subEffect",
+      resub: "resubEffect",
+      giftsub: "giftsubEffect",
+      giftbomb: "giftbombEffect",
+      cheer: "cheerEffect",
+      raid: "raidEffect",
+      tip: "tipEffect"
+    };
+
+    for (const k in map) {
+      const v = __toNum(C[map[k]]);
+      if (v != null) state.effectsByAlert[k] = v;
+    }
+  }
+function resetRenderMods() {
     lastRenderMods.additiveAlphaMul = 1;
     lastRenderMods.wobbleRad = 0;
     lastRenderMods.hueRotateDeg = 0;
@@ -330,6 +343,10 @@ let bound = false;
 
     resetRenderMods();
 
+    if (state.spawnMode === "trigger" && nowMs >= state.triggerUntilMs) {
+      out.densityMul = 0;
+    }
+
     if (!state.alertsEnabled) return out;
 
     // HEARTBEAT
@@ -341,7 +358,7 @@ let bound = false;
       out.scaleMul *= size;
       out.densityMul *= PRESETS.heartbeat.densityMul;
       out.speedMul *= PRESETS.heartbeat.speedMul;
-      out.glow = (size - 1) * 2;
+      out.glow = (size - 1) * 2; 
     }
 
     // BURST
@@ -454,7 +471,7 @@ let bound = false;
         const prevFilterA = ctx.filter;
 
         ctx.globalCompositeOperation = "lighter";
-        ctx.globalAlpha = prevAlphaA * m.additiveAlphaMul;
+        ctx.globalAlpha = prevAlphaA * clamp01(m.additiveAlphaMul - 1);
 
         if (Math.abs(m.hueRotateDeg) > 0.5) {
           try { ctx.filter = `hue-rotate(${m.hueRotateDeg}deg)`; } catch (_) {}
@@ -470,7 +487,6 @@ let bound = false;
         ctx.restore();
       }
 
-      // Glow pass
       if (m.glowActive) {
         const alpha = m.glowAlpha;
         const blurPx = m.glowBlurPx;
@@ -484,7 +500,7 @@ let bound = false;
           const prevShadowColor = ctx.shadowColor;
 
           ctx.globalCompositeOperation = "lighter";
-
+          ctx.globalAlpha = prevAlpha2 * clamp01(alpha);
 
           let usedFilter = false;
           try {
@@ -526,7 +542,6 @@ let bound = false;
     }
   }, 16);
 
-  
   function tryGetRootVM() {
     if (window.__VDayRootVM) return window.__VDayRootVM;
     const ri = window.riveInstance || window.__riveInstance;
@@ -572,7 +587,7 @@ let bound = false;
     if (!rootVM) {
       state.riveStatus = "waiting";
       state.riveDetails = "no global RootVM (need __VDayRootVM or riveInstance)";
-      updatePanel();
+      
       if (!__loggedNoRootVM) { 
         __loggedNoRootVM = true; 
         log("[RIVE] waiting: no global root VM yet"); 
@@ -584,7 +599,7 @@ let bound = false;
     if (!m) {
       state.riveStatus = "failed";
       state.riveDetails = "Main VM not found";
-      updatePanel();
+      
       warn("[RIVE] found rootVM but could not locate Main/alertsEnabled");
       return false;
     }
@@ -597,7 +612,7 @@ let bound = false;
     if (!pAlertsEnabled || !pAlertHub) {
       state.riveStatus = "failed";
       state.riveDetails = "missing alertsEnabled/alertHub";
-      updatePanel();
+      
       warn("[RIVE] missing required props on Main VM");
       return false;
     }
@@ -623,14 +638,14 @@ let bound = false;
       state.alertsEnabled = !!pAlertsEnabled.value;
       log("[RIVE] alertsEnabled ->", state.alertsEnabled);
       syncHubConnection();
-      updatePanel();
+      
     }, "alertsEnabled");
 
     observe(pAlertHub, () => {
       state.alertHub = Number(pAlertHub.value) || 0;
       log("[RIVE] alertHub ->", state.alertHub);
       syncHubConnection();
-      updatePanel();
+      
     }, "alertHub");
 
     if (alertsContainerVM) {
@@ -643,7 +658,7 @@ let bound = false;
         observe(pEff, () => {
           state.effectsByAlert[n] = Number(pEff.value) || 0;
           log(`[RIVE] ${n}.effectId ->`, state.effectsByAlert[n]);
-          updatePanel();
+          
         }, `${n}.effectId`);
       }
     }
@@ -651,7 +666,7 @@ let bound = false;
     bound = true;
     state.riveStatus = "bound";
     state.riveDetails = alertsContainerVM ? "full" : "partial (no alert instances)";
-    updatePanel();
+    
 
     log("[RIVE] Bound OK", {
       alertsEnabled: state.alertsEnabled,
@@ -668,7 +683,6 @@ let bound = false;
     bindRive();
     if (!bound) requestAnimationFrame(bindLoop);
   }
-
 
   function applyUIConfig(payload, sourceLabel) {
     if (!payload || typeof payload !== "object") return;
@@ -712,7 +726,7 @@ let bound = false;
 
     state.riveStatus = "ui-bridge";
     state.riveDetails = sourceLabel || "ui";
-    updatePanel();
+    
     log("[UI] Applied config", {
       alertsEnabled: state.alertsEnabled,
       alertHub: state.alertHub,
@@ -755,7 +769,6 @@ let bound = false;
     }
   }
 
-
   function wsClose() {
     if (state.ws) {
       try { 
@@ -769,7 +782,7 @@ let bound = false;
     state.ws = null;
     state.wsHub = HUB.OFF;
     state.wsStatus = "closed";
-    updatePanel();
+    
   }
 
   function syncHubConnection() {
@@ -780,7 +793,7 @@ let bound = false;
       } else {
         state.wsStatus = "idle";
         state.wsHub = HUB.OFF;
-        updatePanel();
+        
       }
       return;
     }
@@ -797,14 +810,14 @@ let bound = false;
     const url = "ws://127.0.0.1:8080";
     state.wsStatus = "connecting";
     state.wsHub = HUB.STREAMERBOT;
-    updatePanel();
+    
     log("[WS][SB] Connecting to", url);
 
     let ws;
     try { ws = new WebSocket(url); } catch (e) {
       state.wsStatus = "error";
       state.lastError = String(e?.message || e);
-      updatePanel();
+      
       warn("[WS][SB] Connection failed", e);
       return;
     }
@@ -812,7 +825,7 @@ let bound = false;
 
     ws.onopen = () => {
       state.wsStatus = "open";
-      updatePanel();
+      
       log("[WS][SB] Connected");
       
       const subMsg = {
@@ -828,20 +841,20 @@ let bound = false;
         log("[WS][SB] Subscribed to events");
       } catch (e) {
         state.lastError = String(e?.message || e);
-        updatePanel();
+        
       }
     };
 
     ws.onerror = (ev) => {
       state.wsStatus = "error";
       state.lastError = "WebSocket error";
-      updatePanel();
+      
       warn("[WS][SB] Error", ev);
     };
 
     ws.onclose = (ev) => {
       state.wsStatus = "closed";
-      updatePanel();
+      
       log("[WS][SB] Closed", ev?.code);
     };
 
@@ -880,21 +893,21 @@ let bound = false;
     const url = "ws://127.0.0.1:7472";
     state.wsStatus = "connecting";
     state.wsHub = HUB.FIREBOT;
-    updatePanel();
+    
     log("[WS][FB] Connecting to", url);
 
     let ws;
     try { ws = new WebSocket(url); } catch (e) {
       state.wsStatus = "error";
       state.lastError = String(e?.message || e);
-      updatePanel();
+      
       return;
     }
     state.ws = ws;
 
     ws.onopen = () => {
       state.wsStatus = "open";
-      updatePanel();
+      
       log("[WS][FB] Connected");
       
       const subMsg = { type: "invoke", id: 0, name: "subscribe-events", data: [] };
@@ -902,19 +915,19 @@ let bound = false;
         ws.send(JSON.stringify(subMsg));
       } catch (e) {
         state.lastError = String(e?.message || e);
-        updatePanel();
+        
       }
     };
 
     ws.onerror = () => {
       state.wsStatus = "error";
       state.lastError = "WebSocket error";
-      updatePanel();
+      
     };
 
     ws.onclose = () => {
       state.wsStatus = "closed";
-      updatePanel();
+      
     };
 
     ws.onmessage = (msg) => {
@@ -943,12 +956,12 @@ let bound = false;
       if (alertName) dispatch(alertName, j?.data || j);
     };
   }
-  
+
   function dispatch(alertName, payload) {
     syncFromConfig();
-state.lastEvent = String(alertName);
+    state.lastEvent = String(alertName);
     state.lastEventAt = Date.now();
-    updatePanel();
+    
 
     if (!state.alertsEnabled) {
       log("[DISPATCH] Ignored (alerts disabled):", alertName);
@@ -962,22 +975,30 @@ state.lastEvent = String(alertName);
       return;
     }
 
+    const nowMs = performance.now();
+    activateTriggerWindow(nowMs);
+
+    if (effId === EFFECT.SPAWN_ONLY) {
+      log("[DISPATCH]", alertName, "->", "spawnOnly", `(ID:${effId})`);
+      return;
+    }
+
     let effectKey = ID_TO_KEY[effId];
     if (effId === EFFECT.RANDOM || !effectKey) {
       effectKey = pickRandomEffect();
     }
 
-    enqueueEffect(effectKey, performance.now());
+    enqueueEffect(effectKey, nowMs);
     log("[DISPATCH]", alertName, "->", effectKey, `(ID:${effId})`);
   }
 
-  
+
   window.addEventListener("keydown", (e) => {
     if (e.code === "F8") {
       state.alertsEnabled = !state.alertsEnabled;
       log("[KEY] Toggle alerts:", state.alertsEnabled);
       syncHubConnection();
-      updatePanel();
+      
       return;
     }
 
@@ -1001,29 +1022,40 @@ state.lastEvent = String(alertName);
       const key = numpadMap[e.code] === "random" ? pickRandomEffect() : numpadMap[e.code];
       enqueueEffect(key, performance.now());
       log("[KEY] Test effect:", key);
-      updatePanel();
+      
     }
   });
 
-  
+
   window.__vdayAlerts = {
-
     getMultipliers,
-
     dispatch: (alertName, payload) => dispatch(alertName, payload),
     setEnabled: (v) => { 
       state.alertsEnabled = !!v; 
       syncHubConnection();
-      updatePanel();
+      
     },
     isEnabled: () => state.alertsEnabled,
+    syncFromConfig,
+
+    setSpawnMode: (mode) => {
+      state.spawnMode = (mode === "trigger") ? "trigger" : "continuous";
+      state.triggerUntilMs = 0;
+      log("[ALERTS] spawnMode =", state.spawnMode);
+    },
+    setTriggerWindowMs: (ms) => {
+      const v = Number(ms);
+      if (Number.isFinite(v) && v > 0) {
+        state.triggerWindowMs = v;
+        log("[ALERTS] triggerWindowMs =", v);
+      }
+    },
 
     connectHub: () => syncHubConnection(),
     disconnectHub: () => wsClose(),
-    
     setDebug: (v) => { 
       DEBUG = !!v; 
-      updatePanel(); 
+       
     },
     
     triggerEffect: (key) => enqueueEffect(key, performance.now()),
@@ -1038,10 +1070,9 @@ state.lastEvent = String(alertName);
     })
   };
 
-  
   requestAnimationFrame(bindLoop);
   initUIBridge();
-  updatePanel();
+  
 
   log("[INIT] Overlay Alerts Unified v2.0 started");
 })();
