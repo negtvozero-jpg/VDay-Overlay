@@ -58,6 +58,28 @@
     C.redeemEnabled = isChecked(f.redeemEnabled);
     if (typeof f.redeemName === "string") C.redeemName = f.redeemName;
     C.redeemEffect = f.redeemEffect;
+
+    if (typeof f.commandSpawnMode === "string") {
+      const mode = f.commandSpawnMode.trim().toLowerCase();
+      C.commandSpawnMode = (mode === "trigger") ? "trigger" : "continuous";
+    }
+    if (f.commandTriggerWindowMs != null) {
+      const ms = (typeof f.commandTriggerWindowMs === "string")
+        ? Number(f.commandTriggerWindowMs.replace(",", "."))
+        : Number(f.commandTriggerWindowMs);
+      if (Number.isFinite(ms) && ms > 0) C.commandTriggerWindowMs = ms;
+    }
+
+    if (typeof f.redeemSpawnMode === "string") {
+      const mode = f.redeemSpawnMode.trim().toLowerCase();
+      C.redeemSpawnMode = (mode === "trigger") ? "trigger" : "continuous";
+    }
+    if (f.redeemTriggerWindowMs != null) {
+      const ms = (typeof f.redeemTriggerWindowMs === "string")
+        ? Number(f.redeemTriggerWindowMs.replace(",", "."))
+        : Number(f.redeemTriggerWindowMs);
+      if (Number.isFinite(ms) && ms > 0) C.redeemTriggerWindowMs = ms;
+    }
     if (typeof f.spawnMode === "string") {
       const mode = f.spawnMode.trim().toLowerCase();
       C.spawnMode = (mode === "trigger") ? "trigger" : "continuous";
