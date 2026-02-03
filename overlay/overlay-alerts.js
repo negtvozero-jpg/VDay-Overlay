@@ -72,7 +72,7 @@
       durationMs: 5200,
       attack: 0.03,
       decay: 0.25,
-      cycles: 5,
+      cycles: 10,
     },
     scaleWave: {
       durationMs: 1100,
