@@ -66,8 +66,8 @@
         colorShift: {
           durationMs: 2200,
           attack: 0.03,
-          decay: 0.25,
-          cycles: 5,
+          decay: 0.5,
+          cycles: 7,
         },
         scaleWave: {
           durationMs: 1100,
@@ -911,3 +911,4 @@
   window.addEventListener("onWidgetUpdate", onFields);
   window.addEventListener("onEventReceived", onSeEvent);
 })();
+
