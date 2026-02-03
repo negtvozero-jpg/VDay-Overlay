@@ -56,30 +56,6 @@ const CONFIG = {
 
 window.VDAY = window.VDAY || {}; window.VDAY.config = CONFIG;
 
-window.__vdaySpawn = {
-  enabled: true,        
-  mode: "continuous",     // "continuous" | "trigger"
-  untilMs: 0         
-};
-
-window.vdayTriggerSpawn = function (durationMs = 1500) {
-  const s = window.__vdaySpawn;
-  if (!s) return;
-  s.untilMs = Math.max(s.untilMs, performance.now() + Math.max(0, durationMs));
-};
-
-window.vdaySetSpawnMode = function (mode) {
-  const s = window.__vdaySpawn;
-  if (!s) return;
-  s.mode = (mode === "trigger") ? "trigger" : "continuous";
-};
-window.vdaySetSpawnEnabled = function (on) {
-  const s = window.__vdaySpawn;
-  if (!s) return;
-  s.enabled = !!on;
-};
-
-
 function argbToHex(argb) {
   const rgb = (argb >>> 0) & 0x00ffffff;
   return "#" + rgb.toString(16).padStart(6, "0");
@@ -243,13 +219,6 @@ let spawnAccumulator = 0;
 
 function spawn(dt) {
 
-    const s = window.__vdaySpawn;
-  if (s && !s.enabled) return;
-
-  if (s && s.mode === "trigger") {
-    if (performance.now() > (s.untilMs || 0)) return;
-  }
-
   const spreadPx = CONFIG.spawnSpread * Math.min(width, height);
   const spreadNorm = Math.max(0.25, spreadPx / Math.min(width, height));
 
@@ -390,30 +359,3 @@ function loop(now) {
 
   requestAnimationFrame(loop);
 }
-
-window.addEventListener("keydown", (e) => {
-  const t = e.target;
-  const tag = t && t.tagName ? t.tagName.toLowerCase() : "";
-  if (tag === "input" || tag === "textarea" || tag === "select" || t?.isContentEditable) return;
-
-  const s = window.__vdaySpawn;
-  if (!s) return;
-
-  if (e.code === "F1") {
-    s.enabled = !s.enabled;
-    console.log("[VDAY] spawn enabled =", s.enabled);
-    e.preventDefault();
-  }
-
-  if (e.code === "F2") {
-    s.mode = (s.mode === "trigger") ? "continuous" : "trigger";
-    console.log("[VDAY] spawn mode =", s.mode);
-    e.preventDefault();
-  }
-
-  if (e.code === "F3") {
-    window.vdayTriggerSpawn(1500);
-    console.log("[VDAY] trigger spawn (1500ms)");
-    e.preventDefault();
-  }
-});
