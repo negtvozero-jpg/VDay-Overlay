@@ -46,9 +46,8 @@
           attack: 0.06,
           decay: 0.35,
           alphaMax: 100,
-          blurMaxPx: 150,
+          blurMaxPx: 100,
           strength: 20,
-          lightenHoldRatio: 0.5,
         },
         additive: {
           durationMs: 1000,
@@ -202,7 +201,6 @@
         glowActive: false,
         glowAlpha: 0,
         glowBlurPx: 0,
-        glowLightenAlpha: 0,
       };
 
       function resetRenderMods() {
@@ -212,7 +210,6 @@
         lastRenderMods.glowActive = false;
         lastRenderMods.glowAlpha = 0;
         lastRenderMods.glowBlurPx = 0;
-        lastRenderMods.glowLightenAlpha = 0;
       }
 
       function enqueueEffect(effectKey, nowMs, bypassAlertsEnabled) {
@@ -405,26 +402,10 @@
         const gl = layers.glow.active;
         if (gl) {
           const tSec = (nowMs - gl.startMs) / 1000;
-          const preset = PRESETS.glow;
-          const env = pulseAD(tSec, preset.attack, preset.decay);
-          
+          const env = pulseAD(tSec, PRESETS.glow.attack, PRESETS.glow.decay);
           lastRenderMods.glowActive = env > 0.001;
           lastRenderMods.glowAlpha = Math.min(1.75, 0.15 + 1.35 * env);
-          lastRenderMods.glowBlurPx = Math.min(18, 2 + (preset.blurMaxPx * 1.6) * env);
-
-          const holdRatio = preset.lightenHoldRatio ?? 0.5;
-          const durSec = gl.durationMs / 1000;
-          const progress = tSec / durSec;
-          
-          let lightenEnv;
-          if (progress < holdRatio) {
-            lightenEnv = 1;
-          } else {
-            const decayProgress = (progress - holdRatio) / (1 - holdRatio);
-            lightenEnv = Math.exp(-decayProgress * 3); 
-          }
-          
-          lastRenderMods.glowLightenAlpha = lightenEnv;
+          lastRenderMods.glowBlurPx = Math.min(18, 2 + (PRESETS.glow.blurMaxPx * 1.6) * env);
           out.glow = env;
           out.alphaMul = 1 + 0.2 * env;
         }
@@ -449,24 +430,25 @@
             return original(ctx, p, render);
           }
 
-          const hasTransform = Math.abs(m.wobbleRad) > 1e-6 || Math.abs(m.hueRotateDeg) > 0.5;
-          
-          if (hasTransform) {
-            ctx.save();
-            const prevFilter = ctx.filter;
-            
-            if (Math.abs(m.hueRotateDeg) > 0.5) {
-              try { ctx.filter = `hue-rotate(${m.hueRotateDeg}deg)`; } catch (_) {}
-            }
-            if (Math.abs(m.wobbleRad) > 1e-6) ctx.rotate(m.wobbleRad);
-            
-            original(ctx, p, render);
-            
-            try { ctx.filter = prevFilter; } catch (_) {}
-            ctx.restore();
-          } else {
-            original(ctx, p, render);
+          ctx.save();
+          const prevComp = ctx.globalCompositeOperation;
+          const prevAlpha = ctx.globalAlpha;
+          const prevFilter = ctx.filter;
+
+          ctx.globalCompositeOperation = "lighter";
+
+          if (Math.abs(m.hueRotateDeg) > 0.5) {
+            try { ctx.filter = `hue-rotate(${m.hueRotateDeg}deg)`; } catch (_) {}
           }
+
+          if (Math.abs(m.wobbleRad) > 1e-6) ctx.rotate(m.wobbleRad);
+
+          original(ctx, p, render);
+
+          try { ctx.filter = prevFilter; } catch (_) {}
+          ctx.globalAlpha = prevAlpha;
+          ctx.globalCompositeOperation = prevComp;
+          ctx.restore();
 
           if (m.additiveAlphaMul > 1.001) {
             ctx.save();
@@ -494,57 +476,39 @@
           if (m.glowActive) {
             const alpha = m.glowAlpha;
             const blurPx = m.glowBlurPx;
-            const lightenAlpha = m.glowLightenAlpha;
 
             if (alpha > 0.001 && blurPx > 0.001) {
-              
               ctx.save();
-              const prevComp = ctx.globalCompositeOperation;
-              const prevAlpha = ctx.globalAlpha;
-              const prevFilter = ctx.filter;
+              const prevComp2 = ctx.globalCompositeOperation;
+              const prevAlpha2 = ctx.globalAlpha;
+              const prevFilter2 = ctx.filter;
               const prevShadowBlur = ctx.shadowBlur;
               const prevShadowColor = ctx.shadowColor;
 
-              ctx.globalCompositeOperation = "source-over";
-              ctx.globalAlpha = prevAlpha * clamp01(alpha * 0.6);
+              ctx.globalCompositeOperation = "lighter";
+              ctx.globalAlpha = prevAlpha2 * clamp01(alpha);
 
               let usedFilter = false;
               try {
                 if (typeof ctx.filter === "string") {
-                  ctx.filter = `blur(${blurPx}px) brightness(1.3)`;
+                  ctx.filter = `blur(${blurPx}px)`;
                   usedFilter = true;
                 }
               } catch (_) {}
 
               if (!usedFilter) {
-                ctx.shadowBlur = blurPx * 1.5;
-                ctx.shadowColor = "rgba(255,200,200,0.8)";
+                ctx.shadowBlur = blurPx * 2.0;
+                ctx.shadowColor = "rgba(255,255,255,1)";
               }
 
               original(ctx, p, render);
 
-              try { ctx.filter = prevFilter; } catch (_) {}
+              try { ctx.filter = prevFilter2; } catch (_) {}
               ctx.shadowBlur = prevShadowBlur;
               ctx.shadowColor = prevShadowColor;
-              ctx.globalAlpha = prevAlpha;
-              ctx.globalCompositeOperation = prevComp;
+              ctx.globalAlpha = prevAlpha2;
+              ctx.globalCompositeOperation = prevComp2;
               ctx.restore();
-
-              if (lightenAlpha > 0.01) {
-                ctx.save();
-                const prevComp2 = ctx.globalCompositeOperation;
-                const prevAlpha2 = ctx.globalAlpha;
-                
-                ctx.globalCompositeOperation = "lighter";
-                ctx.globalAlpha = prevAlpha2 * clamp01(lightenAlpha * 0.4); 
-                ctx.scale(0.95, 0.95);
-                
-                original(ctx, p, render);
-                
-                ctx.globalAlpha = prevAlpha2;
-                ctx.globalCompositeOperation = prevComp2;
-                ctx.restore();
-              }
             }
           }
         }
