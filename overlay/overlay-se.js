@@ -46,7 +46,7 @@
           attack: 0.06,
           decay: 0.35,
           alphaMax: 100,
-          blurMaxPx: 150,
+          blurMaxPx: 50,
           strength: 20,
           lightenHoldRatio: 0.5,
         },
@@ -911,4 +911,5 @@
   window.addEventListener("onWidgetUpdate", onFields);
   window.addEventListener("onEventReceived", onSeEvent);
 })();
+
 
