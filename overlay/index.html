@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Hearts Overlay</title>
+  <title>VDay Overlay</title>
   <style>
     html, body {
       margin:0;
@@ -51,33 +51,25 @@
       pointer-events:auto;
     }
 
-#overlayUiPanel {
-  position:fixed;
-  top:88px;
-  left:16px;
-  width:min(620px, calc(100vw - 32px));
-  height:min(820px, calc(100vh - 120px));
-  border-radius:18px;
-  border:1px solid rgba(255, 255, 255, 0);
-  background:rgba(24, 18, 44, 0);
-  box-shadow:0 18px 50px rgba(0, 0, 0, 0);
-  backdrop-filter:blur(10px);
-  overflow:hidden;
-  z-index:9999;
+    #overlayUiPanel {
+      position:fixed;
+      top:88px;
+      left:16px;
+      width:min(620px, calc(100vw - 32px));
+      height:min(820px, calc(100vh - 120px));
+      border-radius:18px;
+      border:1px solid rgba(255, 255, 255, 0);
+      background:rgba(24, 18, 44, 0);
+      box-shadow:0 18px 50px rgba(0, 0, 0, 0);
+      backdrop-filter:blur(10px);
+      overflow:hidden;
+      z-index:9999;
+      display:none;
+    }
 
-  opacity:0;
-  visibility:hidden;
-  pointer-events:none;
-  transform:translateY(-8px);
-  transition:opacity 140ms ease, transform 140ms ease, visibility 140ms ease;
-}
-
-#overlayUiPanel.open {
-  opacity:1;
-  visibility:visible;
-  pointer-events:auto;
-  transform:translateY(0);
-}
+    #overlayUiPanel.open {
+      display:block;
+    }
 
     #overlayUiFrame {
       width:100%;
@@ -102,8 +94,8 @@
     ></iframe>
   </div>
 
-  <script src="./overlay/overlay.js"></script>
-  <script src="./overlay/overlay-premium.js"></script>
+  <script src="./overlay.js"></script>
+  <script src="./overlay-premium.js"></script>
 
   <script>
     (() => {
