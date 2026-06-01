@@ -405,7 +405,8 @@ function bootRive() {
         console.error("[UI] No viewModelInstance bound on riveInstance.");
         return;
       }
-
+      
+      window.__VDayRiveInstance = riveInstance;
       window.__VDayRootVM = rootVM;
       window.__VDayRiveReady = true;
 
@@ -520,3 +521,9 @@ function bootRive() {
 }
 
 window.addEventListener("DOMContentLoaded", bootRive);
+
+window.addEventListener("resize", () => {
+  try {
+    window.__VDayRiveInstance?.resizeDrawingSurfaceToCanvas();
+  } catch {}
+});
