@@ -120,9 +120,20 @@
       function setOpen(open) {
         panel.classList.toggle("open", open);
         gear.classList.toggle("open", open);
+      
         if (open) {
           gear.classList.add("visible");
           clearTimeout(hideTimer);
+      
+          const frame = document.getElementById("overlayUiFrame");
+      
+          if (!frame.getAttribute("src")) {
+            frame.setAttribute("src", frame.dataset.src);
+          } else {
+            requestAnimationFrame(() => {
+              frame.contentWindow?.dispatchEvent(new Event("resize"));
+            });
+          }
         } else {
           showGear();
         }
