@@ -1,6 +1,6 @@
 
 const canvas = document.getElementById("rive-canvas");
-const RIVE_URL = "./assets/vday_ui.riv";
+const RIVE_URL = "/assets/vday_ui.riv";
 const ARTBOARD = "Premium";
 const STATE_MACHINES = ["State Machine 1"];
 const BC_NAME = "vday-config";
