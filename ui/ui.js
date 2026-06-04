@@ -296,92 +296,431 @@ function ensureColorPanel() {
   let panel = document.getElementById("vday-color-panel");
   if (panel) return panel;
 
+  const style = document.createElement("style");
+  style.textContent = `
+    #vday-color-panel{
+      position:fixed;
+      z-index:2147483647;
+      display:none;
+      width:360px;
+      padding:12px;
+      border-radius:14px;
+      border:1px solid rgba(186,215,233,0.25);
+      background:rgba(43,52,103,0.96);
+      box-shadow:0 18px 50px rgba(0,0,0,0.45);
+      backdrop-filter:blur(10px);
+      color:#FCFFE7;
+      font:13px system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+      box-sizing:border-box;
+    }
+
+    #vday-color-panel *{
+      box-sizing:border-box;
+    }
+
+    #vday-color-panel .cpHeader{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:12px;
+      margin-bottom:10px;
+    }
+
+    #vday-color-panel .cpTitle{
+      font-size:13px;
+      color:rgba(252,255,231,0.70);
+      font-weight:800;
+    }
+
+    #vday-color-panel .cpClose{
+      height:30px;
+      padding:0 10px;
+      border-radius:10px;
+      border:1px solid rgba(186,215,233,0.25);
+      background:rgba(0,0,0,0.18);
+      color:#FCFFE7;
+      cursor:pointer;
+      font-weight:800;
+    }
+
+    #vday-color-panel .cpRow{
+      display:flex;
+      gap:10px;
+      align-items:stretch;
+    }
+
+    #vday-color-panel .cpSV,
+    #vday-color-panel .cpHue{
+      display:block;
+      border-radius:12px;
+      background:rgba(0,0,0,0.12);
+      border:1px solid rgba(255,255,255,0.10);
+      touch-action:none;
+      user-select:none;
+    }
+
+    #vday-color-panel .cpSV{
+      cursor:crosshair;
+      flex:1 1 auto;
+      width:300px;
+      height:210px;
+    }
+
+    #vday-color-panel .cpHue{
+      cursor:ns-resize;
+      flex:0 0 auto;
+      width:26px;
+      height:210px;
+    }
+
+    #vday-color-panel .cpBottom{
+      display:flex;
+      align-items:center;
+      justify-content:flex-end;
+      gap:10px;
+      margin-top:10px;
+    }
+
+    #vday-color-panel .cpSwatch{
+      width:72px;
+      height:38px;
+      border-radius:10px;
+      border:1px solid rgba(186,215,233,0.25);
+      background:#ffffff;
+      margin-right:auto;
+    }
+
+    #vday-color-panel .cpHex{
+      width:130px;
+      height:38px;
+      border-radius:10px;
+      border:1px solid rgba(186,215,233,0.25);
+      background:rgba(0,0,0,0.18);
+      color:#FCFFE7;
+      padding:0 10px;
+      font-size:14px;
+      font-weight:800;
+      letter-spacing:.5px;
+      outline:none;
+      text-transform:uppercase;
+      font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace;
+    }
+
+    #vday-color-panel .hiddenColorInput{
+      display:none;
+    }
+  `;
+  document.head.appendChild(style);
+
   panel = document.createElement("div");
   panel.id = "vday-color-panel";
-  panel.style.cssText = [
-    "position:fixed",
-    "z-index:2147483647",
-    "display:none",
-    "padding:8px",
-    "border-radius:10px",
-    "background:rgba(15,15,15,0.92)",
-    "border:1px solid rgba(255,255,255,0.12)",
-    "box-shadow:0 12px 28px rgba(0,0,0,0.35)",
-    "backdrop-filter: blur(6px)",
-  ].join(";");
+  panel.innerHTML = `
+    <div class="cpHeader">
+      <div class="cpTitle" id="vdayCpTitle">Primary color</div>
+      <button type="button" class="cpClose" id="vdayCpClose">Close</button>
+    </div>
 
-  const primaryInput = document.createElement("input");
-  primaryInput.type = "color";
-  primaryInput.id = "vdaySysColorPrimary";
-  primaryInput.setAttribute("aria-label", "Primary color");
-  primaryInput.style.cssText = [
-    "width:44px",
-    "height:28px",
-    "display:inline-block",
-    "opacity:1",
-    "pointer-events:auto",
-    "position:static",
-    "margin:0",
-    "padding:0",
-    "border:1px solid rgba(255,255,255,0.25)",
-    "border-radius:8px",
-    "background:transparent",
-    "cursor:pointer",
-  ].join(";");
+    <div class="cpRow">
+      <canvas class="cpSV" id="vdayCpSV" width="300" height="210"></canvas>
+      <canvas class="cpHue" id="vdayCpHue" width="26" height="210"></canvas>
+    </div>
 
-  const secondaryInput = document.createElement("input");
-  secondaryInput.type = "color";
-  secondaryInput.id = "vdaySysColorSecondary";
-  secondaryInput.setAttribute("aria-label", "Secondary color");
-  secondaryInput.style.cssText = primaryInput.style.cssText;
-  const close = document.createElement("button");
-  close.type = "button";
-  close.setAttribute("aria-label", "Close");
-  close.innerHTML = "×";
-  close.style.cssText = [
-    "margin-left:8px",
-    "width:28px",
-    "height:28px",
-    "line-height:26px",
-    "text-align:center",
-    "background:transparent",
-    "color:rgba(255,255,255,0.85)",
-    "border:1px solid rgba(255,255,255,0.18)",
-    "border-radius:8px",
-    "padding:0",
-    "cursor:pointer",
-    "user-select:none",
-    "font-size:18px",
-  ].join(";");
+    <div class="cpBottom">
+      <div class="cpSwatch" id="vdayCpSwatch"></div>
+      <input class="cpHex" id="vdayCpHex" inputmode="text" autocomplete="off" spellcheck="false" />
+    </div>
 
-  close.addEventListener("click", () => {
+    <input id="vdaySysColorPrimary" class="hiddenColorInput" type="text" value="#e85a5a">
+    <input id="vdaySysColorSecondary" class="hiddenColorInput" type="text" value="#8a2e2e">
+  `;
+  document.body.appendChild(panel);
+
+  const title = panel.querySelector("#vdayCpTitle");
+  const close = panel.querySelector("#vdayCpClose");
+  const cpSV = panel.querySelector("#vdayCpSV");
+  const cpHue = panel.querySelector("#vdayCpHue");
+  const cpSwatch = panel.querySelector("#vdayCpSwatch");
+  const cpHex = panel.querySelector("#vdayCpHex");
+
+  const primaryInput = panel.querySelector("#vdaySysColorPrimary");
+  const secondaryInput = panel.querySelector("#vdaySysColorSecondary");
+
+  const svCtx = cpSV.getContext("2d");
+  const hueCtx = cpHue.getContext("2d");
+
+  let targetInput = primaryInput;
+  let H = 0;
+  let S = 1;
+  let V = 1;
+
+  function clamp01Local(x) {
+    x = Number(x);
+    if (!Number.isFinite(x)) return 0;
+    return x < 0 ? 0 : x > 1 ? 1 : x;
+  }
+
+  function hsvToRgb(h, s, v) {
+    h = ((h % 1) + 1) % 1;
+    const i = Math.floor(h * 6);
+    const f = h * 6 - i;
+    const p = v * (1 - s);
+    const q = v * (1 - f * s);
+    const t = v * (1 - (1 - f) * s);
+
+    let r, g, b;
+    switch (i % 6) {
+      case 0: r = v; g = t; b = p; break;
+      case 1: r = q; g = v; b = p; break;
+      case 2: r = p; g = v; b = t; break;
+      case 3: r = p; g = q; b = v; break;
+      case 4: r = t; g = p; b = v; break;
+      default: r = v; g = p; b = q; break;
+    }
+
+    return {
+      r: Math.round(r * 255),
+      g: Math.round(g * 255),
+      b: Math.round(b * 255),
+    };
+  }
+
+  function rgbToHsv(r, g, b) {
+    r /= 255;
+    g /= 255;
+    b /= 255;
+
+    const mx = Math.max(r, g, b);
+    const mn = Math.min(r, g, b);
+    const d = mx - mn;
+
+    let h = 0;
+    if (d !== 0) {
+      if (mx === r) h = ((g - b) / d) % 6;
+      else if (mx === g) h = (b - r) / d + 2;
+      else h = (r - g) / d + 4;
+      h /= 6;
+    }
+
+    return {
+      h: ((h % 1) + 1) % 1,
+      s: mx === 0 ? 0 : d / mx,
+      v: mx,
+    };
+  }
+
+  function rgbToHex6(r, g, b) {
+    return [r, g, b].map((n) => {
+      n = Math.max(0, Math.min(255, Number(n) | 0));
+      return n.toString(16).padStart(2, "0").toUpperCase();
+    }).join("");
+  }
+
+  function hex6ToRgb(hex) {
+    let h = String(hex || "").trim().replace(/^#/, "").toUpperCase();
+    if (h.length === 3) h = h[0] + h[0] + h[1] + h[1] + h[2] + h[2];
+    if (!/^[0-9A-F]{6}$/.test(h)) h = "000000";
+
+    const n = parseInt(h, 16);
+    return {
+      r: (n >> 16) & 255,
+      g: (n >> 8) & 255,
+      b: n & 255,
+      hex: h,
+    };
+  }
+
+  function setTargetHex6(hex6) {
+    if (!targetInput) return;
+
+    targetInput.value = "#" + hex6;
+
+    try {
+      targetInput.dispatchEvent(new Event("input", { bubbles: true }));
+    } catch {}
+
+    try {
+      targetInput.dispatchEvent(new Event("change", { bubbles: true }));
+    } catch {}
+  }
+
+  function renderHue() {
+    const w = cpHue.width;
+    const h = cpHue.height;
+
+    const g = hueCtx.createLinearGradient(0, 0, 0, h);
+    g.addColorStop(0.00, "#FF0000");
+    g.addColorStop(1 / 6, "#FFFF00");
+    g.addColorStop(2 / 6, "#00FF00");
+    g.addColorStop(3 / 6, "#00FFFF");
+    g.addColorStop(4 / 6, "#0000FF");
+    g.addColorStop(5 / 6, "#FF00FF");
+    g.addColorStop(1.00, "#FF0000");
+
+    hueCtx.clearRect(0, 0, w, h);
+    hueCtx.fillStyle = g;
+    hueCtx.fillRect(0, 0, w, h);
+
+    const y = Math.round((1 - H) * h);
+
+    hueCtx.save();
+    hueCtx.strokeStyle = "rgba(255,255,255,.92)";
+    hueCtx.lineWidth = 2;
+    hueCtx.beginPath();
+    hueCtx.rect(1, y - 3, w - 2, 6);
+    hueCtx.stroke();
+    hueCtx.restore();
+  }
+
+  function renderSV() {
+    const w = cpSV.width;
+    const h = cpSV.height;
+    const base = hsvToRgb(H, 1, 1);
+
+    svCtx.clearRect(0, 0, w, h);
+    svCtx.fillStyle = `rgb(${base.r},${base.g},${base.b})`;
+    svCtx.fillRect(0, 0, w, h);
+
+    const white = svCtx.createLinearGradient(0, 0, w, 0);
+    white.addColorStop(0, "rgba(255,255,255,1)");
+    white.addColorStop(1, "rgba(255,255,255,0)");
+    svCtx.fillStyle = white;
+    svCtx.fillRect(0, 0, w, h);
+
+    const black = svCtx.createLinearGradient(0, 0, 0, h);
+    black.addColorStop(0, "rgba(0,0,0,0)");
+    black.addColorStop(1, "rgba(0,0,0,1)");
+    svCtx.fillStyle = black;
+    svCtx.fillRect(0, 0, w, h);
+
+    const x = Math.round(S * w);
+    const y = Math.round((1 - V) * h);
+
+    svCtx.save();
+    svCtx.strokeStyle = "rgba(255,255,255,.95)";
+    svCtx.lineWidth = 2;
+    svCtx.beginPath();
+    svCtx.arc(x, y, 8, 0, Math.PI * 2);
+    svCtx.stroke();
+    svCtx.restore();
+  }
+
+  function emit() {
+    const rgb = hsvToRgb(H, S, V);
+    const hex6 = rgbToHex6(rgb.r, rgb.g, rgb.b);
+
+    cpSwatch.style.background = "#" + hex6;
+    cpHex.value = hex6;
+
+    setTargetHex6(hex6);
+  }
+
+  function rerender(write = true) {
+    renderHue();
+    renderSV();
+
+    if (write) emit();
+    else {
+      const rgb = hsvToRgb(H, S, V);
+      const hex6 = rgbToHex6(rgb.r, rgb.g, rgb.b);
+      cpSwatch.style.background = "#" + hex6;
+      cpHex.value = hex6;
+    }
+  }
+
+  function syncFromInput(inputEl) {
+    const rgb = hex6ToRgb(inputEl && inputEl.value);
+    const hsv = rgbToHsv(rgb.r, rgb.g, rgb.b);
+
+    H = hsv.h;
+    S = hsv.s;
+    V = hsv.v;
+
+    rerender(false);
+  }
+
+  function closePanel() {
     panel.style.display = "none";
+  }
+
+  function trackPointer(el, onMove) {
+    const move = (ev) => {
+      const r = el.getBoundingClientRect();
+      const x = ev.clientX - r.left;
+      const y = ev.clientY - r.top;
+      onMove(x, y, r);
+    };
+
+    const up = () => {
+      window.removeEventListener("pointermove", move, true);
+      window.removeEventListener("pointerup", up, true);
+    };
+
+    window.addEventListener("pointermove", move, true);
+    window.addEventListener("pointerup", up, true);
+  }
+
+  cpHue.addEventListener("pointerdown", (ev) => {
+    const apply = (_x, y, r) => {
+      H = clamp01Local(1 - y / r.height);
+      rerender(true);
+    };
+
+    const r = cpHue.getBoundingClientRect();
+    apply(0, ev.clientY - r.top, r);
+    trackPointer(cpHue, apply);
   });
 
-  const row = document.createElement("div");
-  row.style.cssText = "display:flex;align-items:center;gap:8px;";
+  cpSV.addEventListener("pointerdown", (ev) => {
+    const apply = (x, y, r) => {
+      S = clamp01Local(x / r.width);
+      V = clamp01Local(1 - y / r.height);
+      rerender(true);
+    };
 
-  row.appendChild(primaryInput);
-  row.appendChild(secondaryInput);
-  row.appendChild(close);
-  panel.appendChild(row);
-  document.body.appendChild(panel);
+    const r = cpSV.getBoundingClientRect();
+    apply(ev.clientX - r.left, ev.clientY - r.top, r);
+    trackPointer(cpSV, apply);
+  });
+
+  cpHex.addEventListener("input", () => {
+    let v = String(cpHex.value || "").trim().replace(/^#/, "").toUpperCase();
+    if (v.length === 3) v = v[0] + v[0] + v[1] + v[1] + v[2] + v[2];
+    if (!/^[0-9A-F]{0,6}$/.test(v)) return;
+
+    cpHex.value = v;
+
+    if (v.length === 6) {
+      const rgb = hex6ToRgb(v);
+      const hsv = rgbToHsv(rgb.r, rgb.g, rgb.b);
+
+      H = hsv.h;
+      S = hsv.s;
+      V = hsv.v;
+
+      rerender(true);
+    }
+  });
+
+  close.addEventListener("click", closePanel);
 
   document.addEventListener("mousedown", (ev) => {
     if (panel.style.display !== "block") return;
-    if (!panel.contains(ev.target)) panel.style.display = "none";
+    if (!panel.contains(ev.target)) closePanel();
   });
 
   panel.__primaryInput = primaryInput;
   panel.__secondaryInput = secondaryInput;
-  panel.__showTarget = function (target ) {
+
+  panel.__showTarget = function (target) {
     if (target === "secondary") {
-      secondaryInput.style.display = "inline-block";
-      primaryInput.style.display = "none";
+      targetInput = secondaryInput;
+      title.textContent = "Secondary color";
     } else {
-      primaryInput.style.display = "inline-block";
-      secondaryInput.style.display = "none";
+      targetInput = primaryInput;
+      title.textContent = "Primary color";
     }
+
+    syncFromInput(targetInput);
   };
 
   return panel;
@@ -405,8 +744,7 @@ function bootRive() {
         console.error("[UI] No viewModelInstance bound on riveInstance.");
         return;
       }
-      
-      window.__VDayRiveInstance = riveInstance;
+
       window.__VDayRootVM = rootVM;
       window.__VDayRiveReady = true;
 
@@ -521,9 +859,3 @@ function bootRive() {
 }
 
 window.addEventListener("DOMContentLoaded", bootRive);
-
-window.addEventListener("resize", () => {
-  try {
-    window.__VDayRiveInstance?.resizeDrawingSurfaceToCanvas();
-  } catch {}
-});
