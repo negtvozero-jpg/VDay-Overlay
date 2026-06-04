@@ -174,166 +174,6 @@
     }
   }
 
-  function ensureInlineColorPanel(rootVM, postFull) {
-    if (document.getElementById("vdayInlineColorPanel")) return;
-
-    const style = document.createElement("style");
-    style.textContent = `
-      #vdayInlineColorPanel{
-        position:fixed;
-        left:16px;
-        bottom:16px;
-        width:280px;
-        padding:14px;
-        border-radius:16px;
-        background:rgba(43,52,103,.96);
-        border:1px solid rgba(186,215,233,.28);
-        color:#FCFFE7;
-        font:13px system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
-        box-shadow:0 18px 50px rgba(0,0,0,.45);
-        z-index:99999;
-        display:none;
-      }
-      #vdayInlineColorPanel.open{ display:block; }
-      #vdayInlineColorPanel .row{ display:flex; align-items:center; gap:10px; margin:9px 0; }
-      #vdayInlineColorPanel label{ width:22px; opacity:.75; font-weight:700; }
-      #vdayInlineColorPanel input[type="range"]{ flex:1; }
-      #vdayInlineColorPanel input[type="text"]{
-        width:100%;
-        height:34px;
-        border-radius:10px;
-        border:1px solid rgba(186,215,233,.28);
-        background:rgba(0,0,0,.22);
-        color:#FCFFE7;
-        padding:0 10px;
-        font-weight:700;
-      }
-      #vdayInlineColorPanel .head{ display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:10px; }
-      #vdayInlineColorPanel .preview{
-        width:34px;
-        height:34px;
-        border-radius:999px;
-        border:1px solid rgba(255,255,255,.35);
-        background:#e85a5a;
-      }
-      #vdayInlineColorPanel .swatches{ display:grid; grid-template-columns:repeat(8,1fr); gap:6px; margin-top:10px; }
-      #vdayInlineColorPanel .swatch{
-        width:24px;
-        height:24px;
-        border-radius:999px;
-        border:1px solid rgba(255,255,255,.38);
-        cursor:pointer;
-      }
-      #vdayInlineColorPanel .close{
-        border:0;
-        border-radius:10px;
-        background:rgba(186,215,233,.18);
-        color:#FCFFE7;
-        height:30px;
-        padding:0 10px;
-        cursor:pointer;
-      }
-    `;
-    document.head.appendChild(style);
-
-    const panel = document.createElement("div");
-    panel.id = "vdayInlineColorPanel";
-    panel.innerHTML = `
-      <div class="head">
-        <strong id="vdayColorTitle">Color</strong>
-        <div class="preview" id="vdayColorPreview"></div>
-        <button class="close" id="vdayColorClose" type="button">Close</button>
-      </div>
-      <input id="vdayColorHex" type="text" maxlength="7" value="#e85a5a">
-      <div class="row"><label>R</label><input id="vdayColorR" type="range" min="0" max="255" value="232"></div>
-      <div class="row"><label>G</label><input id="vdayColorG" type="range" min="0" max="255" value="90"></div>
-      <div class="row"><label>B</label><input id="vdayColorB" type="range" min="0" max="255" value="90"></div>
-      <div class="swatches" id="vdayColorSwatches"></div>
-    `;
-    document.body.appendChild(panel);
-
-    const title = panel.querySelector("#vdayColorTitle");
-    const preview = panel.querySelector("#vdayColorPreview");
-    const hexInput = panel.querySelector("#vdayColorHex");
-    const rInput = panel.querySelector("#vdayColorR");
-    const gInput = panel.querySelector("#vdayColorG");
-    const bInput = panel.querySelector("#vdayColorB");
-    const swatches = panel.querySelector("#vdayColorSwatches");
-    const closeBtn = panel.querySelector("#vdayColorClose");
-
-    let activeColorName = "heartColor";
-
-    function rgbToHex(r, g, b) {
-      return "#" + [r, g, b].map(v => {
-        const n = Math.max(0, Math.min(255, Number(v) | 0));
-        return n.toString(16).padStart(2, "0");
-      }).join("");
-    }
-
-    function hexToRgb(hex) {
-      const clean = String(hex || "").replace("#", "").trim();
-      if (!/^[0-9a-fA-F]{6}$/.test(clean)) return null;
-      const n = parseInt(clean, 16);
-      return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 };
-    }
-
-    function applyHex(hex, write = true) {
-      const rgb = hexToRgb(hex);
-      if (!rgb) return;
-
-      const normalized = rgbToHex(rgb.r, rgb.g, rgb.b);
-      rInput.value = String(rgb.r);
-      gInput.value = String(rgb.g);
-      bInput.value = String(rgb.b);
-      hexInput.value = normalized;
-      preview.style.background = normalized;
-
-      if (write) {
-        setRiveColor(rootVM, activeColorName, normalized);
-        postFull();
-      }
-    }
-
-    function applyFromRgb() {
-      applyHex(rgbToHex(rInput.value, gInput.value, bInput.value), true);
-    }
-
-    rInput.addEventListener("input", applyFromRgb);
-    gInput.addEventListener("input", applyFromRgb);
-    bInput.addEventListener("input", applyFromRgb);
-
-    hexInput.addEventListener("input", () => {
-      const value = hexInput.value.trim();
-      if (/^#[0-9a-fA-F]{6}$/.test(value)) applyHex(value, true);
-    });
-
-    closeBtn.addEventListener("click", () => {
-      panel.classList.remove("open");
-    });
-
-    COLOR_PRESETS.forEach(hex => {
-      const btn = document.createElement("button");
-      btn.type = "button";
-      btn.className = "swatch";
-      btn.style.background = hex;
-      btn.addEventListener("click", () => applyHex(hex, true));
-      swatches.appendChild(btn);
-    });
-
-    window.__VDayOpenColorPanel = function openColorPanel(colorName) {
-      activeColorName = colorName || "heartColor";
-      title.textContent = activeColorName;
-
-      let current = "#e85a5a";
-      try {
-        const c = rootVM.color?.(activeColorName);
-        if (c && typeof c.value === "number") current = argbIntToHex(c.value);
-      } catch {}
-
-      applyHex(current, false);
-      panel.classList.add("open");
-    };
-  }
 
   waitReady((rootVM) => {
     let prideMask = loadMask(STORAGE_KEY_PRIDE);
@@ -400,8 +240,6 @@
         },
       });
     }
-
-    ensureInlineColorPanel(rootVM, postFull);
 
     let lastSend = 0;
 
@@ -490,22 +328,5 @@
     }
     hookTrigger(clearTexTrig, onClearTexturePulse, "clearTexture");
 
-    function hookColorTrigger(triggerName, colorName) {
-      let trig = null;
-
-      try { trig = rootVM.trigger?.(triggerName); } catch {}
-      if (!trig) {
-        try { trig = rootVM.trigger?.(`Main/${triggerName}`); } catch {}
-      }
-
-      hookTrigger(trig, () => {
-        if (window.__VDayOpenColorPanel) {
-          window.__VDayOpenColorPanel(colorName);
-        }
-      }, triggerName);
-    }
-
-    hookColorTrigger("colorTrigger", "heartColor");
-    hookColorTrigger("colorTriggerSecondary", "heartColorSecondary");
   });
 })();
