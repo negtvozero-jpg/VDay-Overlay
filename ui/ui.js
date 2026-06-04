@@ -560,7 +560,7 @@ function ensureColorPanel() {
     hueCtx.fillStyle = g;
     hueCtx.fillRect(0, 0, w, h);
 
-    const y = Math.round((1 - H) * h);
+    const y = Math.round(H * h);
 
     hueCtx.save();
     hueCtx.strokeStyle = "rgba(255,255,255,.92)";
@@ -661,7 +661,7 @@ function ensureColorPanel() {
 
   cpHue.addEventListener("pointerdown", (ev) => {
     const apply = (_x, y, r) => {
-      H = clamp01Local(1 - y / r.height);
+      H = clamp01Local(y / r.height);
       rerender(true);
     };
 
